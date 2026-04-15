@@ -11,6 +11,11 @@ const doctorSchema = new mongoose.Schema({
     about: { type: String, required: true },
     available: { type: Boolean, default: true },
     appointmentApprovalMode: { type: String, enum: ['auto', 'manual'], default: 'auto' },
+    // Optional schedule control. When set, patients only see/book these slot times.
+    // Times must be in "hh:mm AM/PM" format (ex: "10:00 AM", "06:00 PM").
+    availableSlotTimes: { type: [String], default: [] },
+    // Optional working days, 0=Sun ... 6=Sat. Empty means "all days".
+    workingDays: { type: [Number], default: [] },
     fees: { type: Number, required: true },
     slots_booked: { type: Object, default: {} },
     feedbacks: {

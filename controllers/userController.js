@@ -182,38 +182,113 @@ const updateProfile = async (req, res) => {
     }
 }
 
-const getNextAvailableEmergencySlot = (slotsBooked = {}) => {
+const normalizeSlotTimeString = (slotTime = '') => {
+    const value = String(slotTime).trim().toUpperCase()
+    const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/)
+    if (!match) return ''
+
+    let hours = Number(match[1])
+    const minutes = Number(match[2])
+    const meridiem = match[3]
+
+    if (!Number.isInteger(hours) || hours < 1 || hours > 12) return ''
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) return ''
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${meridiem}`
+}
+
+const parseSlotTimeTo24 = (slotTime = '') => {
+    const normalized = normalizeSlotTimeString(slotTime)
+    if (!normalized) return null
+
+    const match = normalized.match(/^(\d{2}):(\d{2})\s*(AM|PM)$/)
+    if (!match) return null
+
+    let hours = Number(match[1])
+    const minutes = Number(match[2])
+    const meridiem = match[3]
+
+    if (meridiem === 'PM' && hours !== 12) hours += 12
+    if (meridiem === 'AM' && hours === 12) hours = 0
+
+    return { hours, minutes }
+}
+
+const getDoctorAllowedSlotTimes = (doctorData) => {
+    const raw = doctorData?.availableSlotTimes
+    if (!Array.isArray(raw) || raw.length === 0) return null
+
+    const normalized = raw
+        .map((t) => normalizeSlotTimeString(t))
+        .filter(Boolean)
+
+    return normalized.length ? Array.from(new Set(normalized)) : null
+}
+
+const isDoctorWorkingDay = (doctorData, dateObj) => {
+    const days = doctorData?.workingDays
+    if (!Array.isArray(days) || days.length === 0) return true
+    return days.includes(dateObj.getDay())
+}
+
+const getNextAvailableEmergencySlot = (doctorData) => {
+    const slotsBooked = doctorData?.slots_booked || {}
     const now = new Date()
 
     for (let i = 0; i < 7; i++) {
-        const currentDate = new Date(now)
-        currentDate.setDate(now.getDate() + i)
+        const dateBase = new Date(now)
+        dateBase.setDate(now.getDate() + i)
+        dateBase.setHours(0, 0, 0, 0)
 
-        const endTime = new Date(now)
-        endTime.setDate(now.getDate() + i)
-        endTime.setHours(21, 0, 0, 0)
+        if (!isDoctorWorkingDay(doctorData, dateBase)) continue
 
-        if (now.getDate() === currentDate.getDate() && now.getMonth() === currentDate.getMonth() && now.getFullYear() === currentDate.getFullYear()) {
-            currentDate.setHours(currentDate.getHours() > 10 ? currentDate.getHours() + 1 : 10)
+        const day = dateBase.getDate()
+        const month = dateBase.getMonth() + 1
+        const year = dateBase.getFullYear()
+        const slotDate = `${day}_${month}_${year}`
+
+        const allowedTimes = getDoctorAllowedSlotTimes(doctorData)
+
+        if (allowedTimes) {
+            for (const t of allowedTimes) {
+                const parsed = parseSlotTimeTo24(t)
+                if (!parsed) continue
+
+                const slotDateTime = new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0, 0)
+                if (slotDateTime <= now) continue
+
+                const isBooked = Array.isArray(slotsBooked[slotDate]) && slotsBooked[slotDate].includes(t)
+                if (!isBooked) return { slotDate, slotTime: t }
+            }
+            continue
+        }
+
+        // Fallback: default 30-minute schedule (10:00 AM to 8:30 PM)
+        const currentDate = new Date(dateBase)
+        if (i === 0) {
+            currentDate.setTime(now.getTime())
             currentDate.setMinutes(currentDate.getMinutes() > 30 ? 30 : 0)
         } else {
-            currentDate.setHours(10)
-            currentDate.setMinutes(0)
+            currentDate.setHours(10, 0, 0, 0)
         }
-        currentDate.setSeconds(0)
-        currentDate.setMilliseconds(0)
+
+        const endTime = new Date(dateBase)
+        endTime.setHours(21, 0, 0, 0)
 
         while (currentDate < endTime) {
-            const day = currentDate.getDate()
-            const month = currentDate.getMonth() + 1
-            const year = currentDate.getFullYear()
-            const slotDate = `${day}_${month}_${year}`
-            const slotTime = currentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-
-            const isBooked = slotsBooked[slotDate] && slotsBooked[slotDate].includes(slotTime)
-            if (!isBooked) {
-                return { slotDate, slotTime }
+            if (currentDate <= now) {
+                currentDate.setMinutes(currentDate.getMinutes() + 30)
+                continue
             }
+
+            const t = normalizeSlotTimeString(currentDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+            if (!t) {
+                currentDate.setMinutes(currentDate.getMinutes() + 30)
+                continue
+            }
+
+            const isBooked = Array.isArray(slotsBooked[slotDate]) && slotsBooked[slotDate].includes(t)
+            if (!isBooked) return { slotDate, slotTime: t }
 
             currentDate.setMinutes(currentDate.getMinutes() + 30)
         }
@@ -267,6 +342,28 @@ const isSlotWithinDoctorSchedule = (slotDate, slotTime) => {
     const isThirtyMinuteStep = minutesFromMidnight % 30 === 0
 
     return minutesFromMidnight >= openingMinutes && minutesFromMidnight <= closingMinutes && isThirtyMinuteStep
+}
+
+const isSlotAllowedForDoctor = (doctorData, slotDate, slotTime) => {
+    const normalizedTime = normalizeSlotTimeString(slotTime)
+    if (!normalizedTime) return false
+
+    const slotDateTime = parseSlotDateTime(slotDate, normalizedTime)
+    if (!slotDateTime || Number.isNaN(slotDateTime.getTime())) return false
+
+    const now = new Date()
+    const sevenDaysFromNow = new Date(now)
+    sevenDaysFromNow.setDate(now.getDate() + 7)
+
+    if (slotDateTime <= now || slotDateTime > sevenDaysFromNow) return false
+    if (!isDoctorWorkingDay(doctorData, slotDateTime)) return false
+
+    const allowedTimes = getDoctorAllowedSlotTimes(doctorData)
+    if (allowedTimes) {
+        return allowedTimes.includes(normalizedTime)
+    }
+
+    return isSlotWithinDoctorSchedule(slotDate, normalizedTime)
 }
 
 const getConsultationRoomId = (appointmentData) => {
@@ -333,7 +430,7 @@ const bookAppointment = async (req, res) => {
         }
 
         if (urgentBooking) {
-            const emergencySlot = getNextAvailableEmergencySlot(docData.slots_booked || {})
+            const emergencySlot = getNextAvailableEmergencySlot(docData)
             if (!emergencySlot) {
                 return res.json({ success: false, message: 'No emergency slots available in next 7 days' })
             }
@@ -343,6 +440,15 @@ const bookAppointment = async (req, res) => {
 
         if (!slotDate || !slotTime) {
             return res.json({ success: false, message: 'Missing booking details' })
+        }
+
+        slotTime = normalizeSlotTimeString(slotTime)
+        if (!slotTime) {
+            return res.json({ success: false, message: 'Invalid slot time format' })
+        }
+
+        if (!urgentBooking && !isSlotAllowedForDoctor(docData, slotDate, slotTime)) {
+            return res.json({ success: false, message: 'Selected slot is outside doctor availability' })
         }
 
         const doctorSnapshot = docData.toObject()
@@ -539,10 +645,16 @@ const cancelAppointment = async (req, res) => {
 // API to reschedule appointment
 const rescheduleAppointment = async (req, res) => {
     try {
-        const { userId, appointmentId, slotDate, slotTime } = req.body
+        const { userId, appointmentId, slotDate } = req.body
+        let { slotTime } = req.body
 
         if (!appointmentId || !slotDate || !slotTime) {
             return res.json({ success: false, message: 'Appointment, date and time are required' })
+        }
+
+        slotTime = normalizeSlotTimeString(slotTime)
+        if (!slotTime) {
+            return res.json({ success: false, message: 'Invalid slot time format' })
         }
 
         const appointmentData = await appointmentModel.findById(appointmentId)
@@ -558,16 +670,16 @@ const rescheduleAppointment = async (req, res) => {
         if (appointmentData.slotDate === slotDate && appointmentData.slotTime === slotTime) {
             return res.json({ success: false, message: 'Please choose a different slot' })
         }
-        if (!isSlotWithinDoctorSchedule(slotDate, slotTime)) {
-            return res.json({ success: false, message: 'Selected slot is outside doctor schedule' })
-        }
-
         const doctorData = await doctorModel.findById(appointmentData.docId).select('-password')
         if (!doctorData) {
             return res.json({ success: false, message: 'Doctor not found' })
         }
         if (!doctorData.available) {
             return res.json({ success: false, message: 'Doctor not available for reschedule' })
+        }
+
+        if (!isSlotAllowedForDoctor(doctorData, slotDate, slotTime)) {
+            return res.json({ success: false, message: 'Selected slot is outside doctor availability' })
         }
 
         const slotsBooked = doctorData.slots_booked || {}

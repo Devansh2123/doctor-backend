@@ -3,6 +3,7 @@ import { loginAdmin, appointmentsAdmin, appointmentCancel, uploadPrescriptionAdm
 import { listOffers, createOffer, updateOffer, deleteOffer, listMemberships, createMembership, updateMembership, deleteMembership, listInsurancePartners, createInsurancePartner, updateInsurancePartner, deleteInsurancePartner } from '../controllers/offersInsuranceAdminController.js';
 import { listClaimsAdmin, updateClaimStatus } from '../controllers/offerClaimController.js';
 import { changeAvailablity } from '../controllers/doctorController.js';
+import { getSiteSettingsAdmin, updateSiteSettingsAdmin } from '../controllers/siteSettingsController.js';
 import authAdmin from '../middleware/authAdmin.js';
 import upload from '../middleware/multer.js';
 const adminRouter = express.Router();
@@ -34,5 +35,15 @@ adminRouter.put("/insurances/:id", authAdmin, updateInsurancePartner)
 adminRouter.delete("/insurances/:id", authAdmin, deleteInsurancePartner)
 adminRouter.get("/claims", authAdmin, listClaimsAdmin)
 adminRouter.put("/claims/:id", authAdmin, updateClaimStatus)
+adminRouter.get("/site-settings", authAdmin, getSiteSettingsAdmin)
+adminRouter.put(
+  "/site-settings",
+  authAdmin,
+  upload.fields([
+    { name: "logo", maxCount: 1 },
+    { name: "aboutImage", maxCount: 1 },
+  ]),
+  updateSiteSettingsAdmin
+)
 
 export default adminRouter;

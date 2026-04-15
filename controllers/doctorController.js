@@ -64,6 +64,43 @@ const getSlotTimeValue = (slotTime = '') => {
 
     return (hours * 60) + minutes
 }
+
+const normalizeSlotTimeString = (slotTime = '') => {
+    const value = String(slotTime).trim().toUpperCase()
+    const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/)
+    if (!match) return ''
+
+    let hours = Number(match[1])
+    const minutes = Number(match[2])
+    const meridiem = match[3]
+
+    if (!Number.isInteger(hours) || hours < 1 || hours > 12) return ''
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) return ''
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${meridiem}`
+}
+
+const parseAvailableSlotTimes = (value) => {
+    if (Array.isArray(value)) {
+        return Array.from(new Set(value.map((t) => normalizeSlotTimeString(t)).filter(Boolean)))
+    }
+    if (typeof value === 'string' && value.trim()) {
+        return Array.from(new Set(value.split(',').map((t) => normalizeSlotTimeString(t)).filter(Boolean)))
+    }
+    return undefined
+}
+
+const parseWorkingDays = (value) => {
+    if (Array.isArray(value)) {
+        const parsed = value.map((d) => Number(d)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+        return Array.from(new Set(parsed))
+    }
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = value.split(',').map((d) => Number(d.trim())).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+        return Array.from(new Set(parsed))
+    }
+    return undefined
+}
 const getAppointmentDateTime = (appointment) => {
     if (!appointment?.slotDate || !appointment?.slotTime) return null
 
@@ -404,12 +441,20 @@ const doctorProfile = async (req, res) => {
 const updateDoctorProfile = async (req, res) => {
     try {
 
-        const { docId, fees, address, available, appointmentApprovalMode } = req.body
+        const { docId, fees, address, available, appointmentApprovalMode, availableSlotTimes, workingDays } = req.body
 
         const allowedModes = ['auto', 'manual']
         const mode = allowedModes.includes(appointmentApprovalMode) ? appointmentApprovalMode : 'auto'
 
-        await doctorModel.findByIdAndUpdate(docId, { fees, address, available, appointmentApprovalMode: mode })
+        const update = { fees, address, available, appointmentApprovalMode: mode }
+
+        const parsedTimes = parseAvailableSlotTimes(availableSlotTimes)
+        if (parsedTimes !== undefined) update.availableSlotTimes = parsedTimes
+
+        const parsedDays = parseWorkingDays(workingDays)
+        if (parsedDays !== undefined) update.workingDays = parsedDays
+
+        await doctorModel.findByIdAndUpdate(docId, update)
 
         res.json({ success: true, message: 'Profile Updated' })
 

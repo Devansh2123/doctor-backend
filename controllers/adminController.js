@@ -170,7 +170,7 @@ const addDoctor = async (req, res) => {
 
     try {
 
-        const { name, email, password, speciality, degree, experience, about, fees, address } = req.body
+        const { name, email, password, speciality, degree, experience, about, fees, address, availableSlotTimes, workingDays } = req.body
         const imageFile = req.file
 
         // checking for all data to add doctor
@@ -207,6 +207,16 @@ const addDoctor = async (req, res) => {
             about,
             fees,
             address: JSON.parse(address),
+            availableSlotTimes: Array.isArray(availableSlotTimes)
+              ? availableSlotTimes
+              : (typeof availableSlotTimes === 'string' && availableSlotTimes.trim()
+                ? availableSlotTimes.split(',').map((t) => t.trim()).filter(Boolean)
+                : []),
+            workingDays: Array.isArray(workingDays)
+              ? workingDays
+              : (typeof workingDays === 'string' && workingDays.trim()
+                ? workingDays.split(',').map((d) => Number(d)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+                : []),
             date: Date.now(),
             isApproved: false
         }
