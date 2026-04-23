@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginDoctor, appointmentsDoctor, appointmentCancel, doctorList, changeAvailablity, appointmentComplete, getDoctorConsultation, sendDoctorConsultationMessage, uploadPrescriptionDoctor, downloadAppointmentReportDoctor, approveAppointmentRequestDoctor, rejectAppointmentRequestDoctor, doctorDashboard, doctorProfile, updateDoctorProfile } from '../controllers/doctorController.js';
+import { loginDoctor, appointmentsDoctor, appointmentCancel, doctorList, changeAvailablity, appointmentComplete, getDoctorConsultation, sendDoctorConsultationMessage, uploadPrescriptionDoctor, downloadAppointmentReportDoctor, updatePatientMedicalHistoryDoctor, getPatientMedicalHistoryDoctor, approveAppointmentRequestDoctor, rejectAppointmentRequestDoctor, doctorDashboard, doctorProfile, updateDoctorProfile } from '../controllers/doctorController.js';
 import authDoctor from '../middleware/authDoctor.js';
 import upload from '../middleware/multer.js';
 const doctorRouter = express.Router();
@@ -16,6 +16,8 @@ doctorRouter.get("/consultation/:appointmentId", authDoctor, getDoctorConsultati
 doctorRouter.post("/consultation/message", authDoctor, sendDoctorConsultationMessage)
 doctorRouter.post("/upload-prescription", authDoctor, upload.single('prescription'), uploadPrescriptionDoctor)
 doctorRouter.get("/download-report/:appointmentId", authDoctor, downloadAppointmentReportDoctor)
+doctorRouter.post("/medical-history", authDoctor, updatePatientMedicalHistoryDoctor)
+doctorRouter.get("/medical-history/:userId", authDoctor, getPatientMedicalHistoryDoctor)
 doctorRouter.get("/dashboard", authDoctor, doctorDashboard)
 doctorRouter.get("/profile", authDoctor, doctorProfile)
 doctorRouter.post("/update-profile", authDoctor, updateDoctorProfile)

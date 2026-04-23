@@ -101,6 +101,49 @@ const parseWorkingDays = (value) => {
     }
     return undefined
 }
+
+const parseMedicalList = (value) => {
+    if (Array.isArray(value)) {
+        return Array.from(
+            new Set(
+                value
+                    .map((item) => String(item || '').trim())
+                    .filter(Boolean)
+            )
+        )
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+        return Array.from(
+            new Set(
+                value
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+            )
+        )
+    }
+
+    return []
+}
+
+const hasMedicalRecordData = (medicalRecord = {}) => {
+    const diseases = Array.isArray(medicalRecord.diseases) ? medicalRecord.diseases.filter(Boolean) : []
+    const symptoms = Array.isArray(medicalRecord.symptoms) ? medicalRecord.symptoms.filter(Boolean) : []
+    const diagnosis = typeof medicalRecord.diagnosis === 'string' ? medicalRecord.diagnosis.trim() : ''
+    const prescription = typeof medicalRecord.prescription === 'string' ? medicalRecord.prescription.trim() : ''
+
+    return Boolean(diseases.length || symptoms.length || diagnosis || prescription)
+}
+
+const sanitizeMedicalRecord = (medicalRecord = {}) => ({
+    diseases: parseMedicalList(medicalRecord.diseases),
+    symptoms: parseMedicalList(medicalRecord.symptoms),
+    diagnosis: typeof medicalRecord.diagnosis === 'string' ? medicalRecord.diagnosis.trim() : '',
+    prescription: typeof medicalRecord.prescription === 'string' ? medicalRecord.prescription.trim() : '',
+    updatedAt: Number(medicalRecord.updatedAt) || 0
+})
+
 const getAppointmentDateTime = (appointment) => {
     if (!appointment?.slotDate || !appointment?.slotTime) return null
 
@@ -392,6 +435,81 @@ const downloadAppointmentReportDoctor = async (req, res) => {
     }
 }
 
+// API to update patient medical history for an appointment
+const updatePatientMedicalHistoryDoctor = async (req, res) => {
+    try {
+        const { docId, appointmentId, diseases, symptoms, diagnosis, prescription } = req.body
+
+        if (!appointmentId) {
+            return res.json({ success: false, message: 'Appointment is required' })
+        }
+
+        const appointmentData = await appointmentModel.findById(appointmentId)
+        if (!appointmentData || appointmentData.docId !== docId) {
+            return res.json({ success: false, message: 'Unauthorized action' })
+        }
+
+        if (appointmentData.cancelled) {
+            return res.json({ success: false, message: 'Cannot update history for cancelled appointment' })
+        }
+
+        const medicalRecord = {
+            diseases: parseMedicalList(diseases),
+            symptoms: parseMedicalList(symptoms),
+            diagnosis: typeof diagnosis === 'string' ? diagnosis.trim() : '',
+            prescription: typeof prescription === 'string' ? prescription.trim() : '',
+            updatedAt: Date.now()
+        }
+
+        if (!hasMedicalRecordData(medicalRecord)) {
+            return res.json({ success: false, message: 'Please add at least one medical history detail' })
+        }
+
+        await appointmentModel.findByIdAndUpdate(appointmentId, { medicalRecord })
+
+        res.json({ success: true, message: 'Medical history updated', medicalRecord })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+// API to fetch past medical history entries for a patient under current doctor
+const getPatientMedicalHistoryDoctor = async (req, res) => {
+    try {
+        const { docId } = req.body
+        const { userId } = req.params
+
+        if (!userId) {
+            return res.json({ success: false, message: 'Patient is required' })
+        }
+
+        const patientAppointments = await appointmentModel
+            .find({ docId, userId })
+            .sort({ date: -1 })
+            .select('slotDate slotTime date medicalRecord prescriptionUrl approvalStatus isCompleted cancelled')
+
+        const history = patientAppointments
+            .map((appointment) => ({
+                appointmentId: appointment._id,
+                slotDate: appointment.slotDate,
+                slotTime: appointment.slotTime,
+                date: appointment.date,
+                isCompleted: appointment.isCompleted,
+                cancelled: appointment.cancelled,
+                approvalStatus: appointment.approvalStatus || 'approved',
+                prescriptionUrl: appointment.prescriptionUrl || '',
+                medicalRecord: sanitizeMedicalRecord(appointment.medicalRecord || {})
+            }))
+            .filter((item) => hasMedicalRecordData(item.medicalRecord))
+
+        res.json({ success: true, history })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
 // API to get all doctors list for Frontend
 const doctorList = async (req, res) => {
     try {
@@ -621,6 +739,8 @@ export {
     sendDoctorConsultationMessage,
     uploadPrescriptionDoctor,
     downloadAppointmentReportDoctor,
+    updatePatientMedicalHistoryDoctor,
+    getPatientMedicalHistoryDoctor,
     approveAppointmentRequestDoctor,
     rejectAppointmentRequestDoctor,
     doctorDashboard,

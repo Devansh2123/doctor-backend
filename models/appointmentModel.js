@@ -37,6 +37,14 @@ const appointmentSchema = new mongoose.Schema({
             date: { type: Number, required: true }
         }],
         default: []
+    },
+    medicalRecord: {
+        diseases: { type: [String], default: [] },
+        symptoms: { type: [String], default: [] },
+        diagnosis: { type: String, default: '' },
+        prescription: { type: String, default: '' },
+        notes: { type: String, default: '' },
+        updatedAt: { type: Number, default: 0 }
     }
     
 })

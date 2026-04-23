@@ -366,6 +366,16 @@ const isSlotAllowedForDoctor = (doctorData, slotDate, slotTime) => {
     return isSlotWithinDoctorSchedule(slotDate, normalizedTime)
 }
 
+const parseMedicalList = (value) => {
+    if (Array.isArray(value)) {
+        return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)))
+    }
+    if (typeof value === 'string' && value.trim()) {
+        return Array.from(new Set(value.split(',').map((item) => item.trim()).filter(Boolean)))
+    }
+    return []
+}
+
 const getConsultationRoomId = (appointmentData) => {
     if (appointmentData.consultationRoomId) return appointmentData.consultationRoomId
     return `kiaan-consult-${appointmentData._id}`
@@ -399,7 +409,16 @@ const bookAppointment = async (req, res) => {
 
     try {
 
-        const { userId, docId, slotDate: requestedSlotDate, slotTime: requestedSlotTime, isUrgent = false } = req.body
+        const {
+            userId,
+            docId,
+            slotDate: requestedSlotDate,
+            slotTime: requestedSlotTime,
+            isUrgent = false,
+            diseases = [],
+            symptoms = [],
+            notes = ''
+        } = req.body
         const urgentBooking = Boolean(isUrgent)
         let slotDate = requestedSlotDate
         let slotTime = requestedSlotTime
@@ -455,6 +474,14 @@ const bookAppointment = async (req, res) => {
         delete doctorSnapshot.slots_booked
         const requiresApproval = docData.appointmentApprovalMode === 'manual'
         const approvalStatus = requiresApproval ? 'pending' : 'approved'
+        const medicalRecord = {
+            diseases: parseMedicalList(diseases),
+            symptoms: parseMedicalList(symptoms),
+            diagnosis: '',
+            prescription: '',
+            notes: typeof notes === 'string' ? notes.trim() : '',
+            updatedAt: Date.now()
+        }
 
         const appointmentData = {
             userId,
@@ -468,6 +495,7 @@ const bookAppointment = async (req, res) => {
             approvalRequired: requiresApproval,
             approvalStatus,
             approvedAt: approvalStatus === 'approved' ? Date.now() : 0,
+            medicalRecord,
             consultationRoomId: `kiaan-consult-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
             date: Date.now()
         }
