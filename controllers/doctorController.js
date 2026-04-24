@@ -4,6 +4,8 @@ import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/appointmentModel.js";
 import { v2 as cloudinary } from "cloudinary";
 import PDFDocument from "pdfkit";
+import fs from "fs";
+import path from "path";
 import { notifyAppointmentEvent } from "../services/appointmentNotificationService.js";
 
 // API for doctor Login 
@@ -247,6 +249,34 @@ const safeParseJson = (value = '') => {
     } catch (error) {
         return null
     }
+}
+
+const resolveLocalPrescriptionPath = (reference = '') => {
+    const raw = String(reference || '').trim()
+    if (!raw) return ''
+
+    let normalized = raw.replace(/\\/g, '/').replace(/^\/+/, '')
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            const parsedUrl = new URL(raw)
+            normalized = parsedUrl.pathname.replace(/\\/g, '/').replace(/^\/+/, '')
+        } catch (error) {
+            return ''
+        }
+    }
+
+    const basename = path.basename(normalized)
+
+    const candidates = [
+        path.resolve(process.cwd(), raw),
+        path.resolve(process.cwd(), normalized),
+        path.resolve(process.cwd(), 'backend', normalized),
+        path.resolve(process.cwd(), 'uploads', basename),
+        path.resolve(process.cwd(), 'backend', 'uploads', basename)
+    ]
+
+    const existingPath = candidates.find((candidate) => fs.existsSync(candidate))
+    return existingPath || ''
 }
 
 const getPrescriptionUploadOptions = (file = {}) => {
@@ -698,7 +728,17 @@ const viewPrescriptionDoctor = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Prescription not found' })
         }
 
-        return res.redirect(appointmentData.prescriptionUrl)
+        const prescriptionRef = String(appointmentData.prescriptionUrl || '').trim()
+        const localPathFromRef = resolveLocalPrescriptionPath(prescriptionRef)
+        if (localPathFromRef) {
+            res.setHeader('Content-Disposition', 'inline')
+            return res.sendFile(localPathFromRef)
+        }
+
+        if (/^https?:\/\//i.test(prescriptionRef)) {
+            return res.redirect(prescriptionRef)
+        }
+        return res.status(404).json({ success: false, message: 'Prescription file path is invalid or file is missing' })
     } catch (error) {
         console.log(error)
         if (!res.headersSent) {
