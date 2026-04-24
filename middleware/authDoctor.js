@@ -3,7 +3,7 @@ import doctorModel from '../models/doctorModel.js'
 
 // doctor authentication middleware
 const authDoctor = async (req, res, next) => {
-    const { dtoken } = req.headers
+    const dtoken = req.headers.dtoken || req.query?.token || req.query?.dtoken
     if (!dtoken) {
         return res.json({ success: false, message: 'Not Authorized Login Again' })
     }
@@ -22,6 +22,7 @@ const authDoctor = async (req, res, next) => {
         if (doctor.isBlocked) {
             return res.json({ success: false, message: 'Your account is blocked. Contact admin.' })
         }
+        req.docId = token_decode.id
         req.body.docId = token_decode.id
         next()
     } catch (error) {

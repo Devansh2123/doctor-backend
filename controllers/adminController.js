@@ -16,6 +16,14 @@ const getAppointmentStatusLabel = (appointment) => {
     return 'Confirmed'
 }
 
+const getPrescriptionUploadOptions = (file = {}) => {
+    const mimeType = String(file.mimetype || '').toLowerCase()
+    if (mimeType === 'application/pdf') {
+        return { resource_type: 'raw' }
+    }
+    return { resource_type: 'auto' }
+}
+
 // API for admin login
 const loginAdmin = async (req, res) => {
     try {
@@ -100,7 +108,10 @@ const uploadPrescriptionAdmin = async (req, res) => {
             return res.json({ success: false, message: 'Appointment not found' })
         }
 
-        const fileUpload = await cloudinary.uploader.upload(prescriptionFile.path, { resource_type: "auto" })
+        const fileUpload = await cloudinary.uploader.upload(
+            prescriptionFile.path,
+            getPrescriptionUploadOptions(prescriptionFile)
+        )
         if (!fileUpload?.secure_url) {
             return res.json({ success: false, message: 'Unable to upload prescription' })
         }
@@ -110,6 +121,28 @@ const uploadPrescriptionAdmin = async (req, res) => {
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
+    }
+}
+
+// API for admin to securely view prescription file for an appointment
+const viewPrescriptionAdmin = async (req, res) => {
+    try {
+        const { appointmentId } = req.params
+
+        const appointmentData = await appointmentModel.findById(appointmentId)
+        if (!appointmentData) {
+            return res.status(404).json({ success: false, message: 'Appointment not found' })
+        }
+        if (!appointmentData.prescriptionUrl) {
+            return res.status(404).json({ success: false, message: 'Prescription not found' })
+        }
+
+        return res.redirect(appointmentData.prescriptionUrl)
+    } catch (error) {
+        console.log(error)
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: error.message })
+        }
     }
 }
 
@@ -492,6 +525,7 @@ export {
     appointmentsAdmin,
     appointmentCancel,
     uploadPrescriptionAdmin,
+    viewPrescriptionAdmin,
     downloadAppointmentReportAdmin,
     addDoctor,
     allDoctors,

@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginDoctor, appointmentsDoctor, appointmentCancel, doctorList, changeAvailablity, appointmentComplete, getDoctorConsultation, sendDoctorConsultationMessage, uploadPrescriptionDoctor, downloadAppointmentReportDoctor, updatePatientMedicalHistoryDoctor, getPatientMedicalHistoryDoctor, approveAppointmentRequestDoctor, rejectAppointmentRequestDoctor, doctorDashboard, doctorProfile, updateDoctorProfile } from '../controllers/doctorController.js';
+import { loginDoctor, appointmentsDoctor, appointmentCancel, doctorList, changeAvailablity, appointmentComplete, getDoctorConsultation, sendDoctorConsultationMessage, uploadPrescriptionDoctor, viewPrescriptionDoctor, downloadAppointmentReportDoctor, updatePatientMedicalHistoryDoctor, getPatientMedicalHistoryDoctor, approveAppointmentRequestDoctor, rejectAppointmentRequestDoctor, doctorDashboard, doctorProfile, updateDoctorProfile, saveConsultationPrescriptionDoctor, suggestDiagnosisWithAiDoctor } from '../controllers/doctorController.js';
 import authDoctor from '../middleware/authDoctor.js';
 import upload from '../middleware/multer.js';
 const doctorRouter = express.Router();
@@ -14,7 +14,10 @@ doctorRouter.post("/approve-appointment", authDoctor, approveAppointmentRequestD
 doctorRouter.post("/reject-appointment", authDoctor, rejectAppointmentRequestDoctor)
 doctorRouter.get("/consultation/:appointmentId", authDoctor, getDoctorConsultation)
 doctorRouter.post("/consultation/message", authDoctor, sendDoctorConsultationMessage)
+doctorRouter.post("/consultation/prescription", authDoctor, saveConsultationPrescriptionDoctor)
+doctorRouter.post("/consultation/ai-diagnosis", authDoctor, suggestDiagnosisWithAiDoctor)
 doctorRouter.post("/upload-prescription", authDoctor, upload.single('prescription'), uploadPrescriptionDoctor)
+doctorRouter.get("/view-prescription/:appointmentId", authDoctor, viewPrescriptionDoctor)
 doctorRouter.get("/download-report/:appointmentId", authDoctor, downloadAppointmentReportDoctor)
 doctorRouter.post("/medical-history", authDoctor, updatePatientMedicalHistoryDoctor)
 doctorRouter.get("/medical-history/:userId", authDoctor, getPatientMedicalHistoryDoctor)

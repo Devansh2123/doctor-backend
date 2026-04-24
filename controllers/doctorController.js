@@ -127,13 +127,63 @@ const parseMedicalList = (value) => {
     return []
 }
 
+const parsePrescriptionMedicines = (value) => {
+    if (!Array.isArray(value)) return []
+
+    return value
+        .map((item = {}) => ({
+            name: typeof item.name === 'string' ? item.name.trim() : '',
+            dosage: typeof item.dosage === 'string' ? item.dosage.trim() : '',
+            timing: typeof item.timing === 'string' ? item.timing.trim() : '',
+            qty: typeof item.qty === 'string' ? item.qty.trim() : '',
+            composition: typeof item.composition === 'string' ? item.composition.trim() : '',
+            notes: typeof item.notes === 'string' ? item.notes.trim() : ''
+        }))
+        .filter((item) => item.name)
+}
+
+const sanitizeVitals = (value = {}) => ({
+    pulse: typeof value.pulse === 'string' ? value.pulse.trim() : '',
+    temperature: typeof value.temperature === 'string' ? value.temperature.trim() : '',
+    spo2: typeof value.spo2 === 'string' ? value.spo2.trim() : ''
+})
+
+const sanitizeSystemicExamination = (value = {}) => ({
+    cvs: typeof value.cvs === 'string' ? value.cvs.trim() : '',
+    rs: typeof value.rs === 'string' ? value.rs.trim() : '',
+    cns: typeof value.cns === 'string' ? value.cns.trim() : '',
+    pa: typeof value.pa === 'string' ? value.pa.trim() : ''
+})
+
 const hasMedicalRecordData = (medicalRecord = {}) => {
     const diseases = Array.isArray(medicalRecord.diseases) ? medicalRecord.diseases.filter(Boolean) : []
     const symptoms = Array.isArray(medicalRecord.symptoms) ? medicalRecord.symptoms.filter(Boolean) : []
     const diagnosis = typeof medicalRecord.diagnosis === 'string' ? medicalRecord.diagnosis.trim() : ''
     const prescription = typeof medicalRecord.prescription === 'string' ? medicalRecord.prescription.trim() : ''
+    const complaints = typeof medicalRecord.complaints === 'string' ? medicalRecord.complaints.trim() : ''
+    const medicines = parsePrescriptionMedicines(medicalRecord.medicines || [])
+    const dietAdvice = typeof medicalRecord.dietAdvice === 'string' ? medicalRecord.dietAdvice.trim() : ''
+    const nextVisit = typeof medicalRecord.nextVisit === 'string' ? medicalRecord.nextVisit.trim() : ''
+    const vitals = sanitizeVitals(medicalRecord.vitals || {})
+    const systemicExamination = sanitizeSystemicExamination(medicalRecord.systemicExamination || {})
 
-    return Boolean(diseases.length || symptoms.length || diagnosis || prescription)
+    return Boolean(
+        diseases.length
+        || symptoms.length
+        || diagnosis
+        || prescription
+        || complaints
+        || medicines.length
+        || dietAdvice
+        || nextVisit
+        || vitals.pulse
+        || vitals.temperature
+        || vitals.spo2
+        || systemicExamination.cvs
+        || systemicExamination.rs
+        || systemicExamination.cns
+        || systemicExamination.pa
+    )
 }
 
 const sanitizeMedicalRecord = (medicalRecord = {}) => ({
@@ -141,6 +191,12 @@ const sanitizeMedicalRecord = (medicalRecord = {}) => ({
     symptoms: parseMedicalList(medicalRecord.symptoms),
     diagnosis: typeof medicalRecord.diagnosis === 'string' ? medicalRecord.diagnosis.trim() : '',
     prescription: typeof medicalRecord.prescription === 'string' ? medicalRecord.prescription.trim() : '',
+    complaints: typeof medicalRecord.complaints === 'string' ? medicalRecord.complaints.trim() : '',
+    vitals: sanitizeVitals(medicalRecord.vitals || {}),
+    systemicExamination: sanitizeSystemicExamination(medicalRecord.systemicExamination || {}),
+    medicines: parsePrescriptionMedicines(medicalRecord.medicines || []),
+    dietAdvice: typeof medicalRecord.dietAdvice === 'string' ? medicalRecord.dietAdvice.trim() : '',
+    nextVisit: typeof medicalRecord.nextVisit === 'string' ? medicalRecord.nextVisit.trim() : '',
     updatedAt: Number(medicalRecord.updatedAt) || 0
 })
 
@@ -157,6 +213,48 @@ const getAppointmentDateTime = (appointment) => {
     const minutes = minutesFromMidnight % 60
 
     return new Date(year, month - 1, day, hours, minutes, 0, 0)
+}
+
+const formatSlotDateReadable = (slotDate = '') => {
+    const [day, month, year] = String(slotDate).split('_')
+    if (!day || !month || !year) return slotDate
+    return `${day}-${month}-${year}`
+}
+
+const buildConsultationHistoryEntry = (appointment) => ({
+    appointmentId: appointment._id,
+    slotDate: appointment.slotDate,
+    slotDateLabel: formatSlotDateReadable(appointment.slotDate),
+    slotTime: appointment.slotTime,
+    date: appointment.date,
+    isCompleted: appointment.isCompleted,
+    cancelled: appointment.cancelled,
+    approvalStatus: appointment.approvalStatus || 'approved',
+    prescriptionUrl: appointment.prescriptionUrl || '',
+    medicalRecord: sanitizeMedicalRecord(appointment.medicalRecord || {})
+})
+
+const getMedicineSummaryText = (medicines = []) => {
+    if (!Array.isArray(medicines) || medicines.length === 0) return ''
+    return medicines
+        .map((medicine) => `${medicine.name}${medicine.dosage ? ` (${medicine.dosage})` : ''}${medicine.timing ? ` - ${medicine.timing}` : ''}${medicine.qty ? ` - Qty ${medicine.qty}` : ''}`)
+        .join('\n')
+}
+
+const safeParseJson = (value = '') => {
+    try {
+        return JSON.parse(value)
+    } catch (error) {
+        return null
+    }
+}
+
+const getPrescriptionUploadOptions = (file = {}) => {
+    const mimeType = String(file.mimetype || '').toLowerCase()
+    if (mimeType === 'application/pdf') {
+        return { resource_type: 'raw' }
+    }
+    return { resource_type: 'auto' }
 }
 
 const getApprovalStatus = (appointment) => appointment?.approvalStatus || 'approved'
@@ -299,13 +397,51 @@ const getDoctorConsultation = async (req, res) => {
             await appointmentModel.findByIdAndUpdate(appointmentId, { consultationRoomId: roomId })
         }
 
+        const patientHistoryRaw = await appointmentModel
+            .find({
+                docId,
+                userId: appointmentData.userId,
+                _id: { $ne: appointmentData._id }
+            })
+            .sort({ date: -1 })
+            .select('slotDate slotTime date medicalRecord prescriptionUrl approvalStatus isCompleted cancelled')
+
+        const patientHistory = patientHistoryRaw
+            .map((item) => buildConsultationHistoryEntry(item))
+            .filter((item) => hasMedicalRecordData(item.medicalRecord))
+
         res.json({
             success: true,
             consultation: {
                 appointmentId: appointmentData._id,
                 roomId,
                 videoUrl: `https://meet.jit.si/${roomId}`,
-                messages: appointmentData.consultationMessages || []
+                messages: appointmentData.consultationMessages || [],
+                appointment: {
+                    id: appointmentData._id,
+                    slotDate: appointmentData.slotDate,
+                    slotDateLabel: formatSlotDateReadable(appointmentData.slotDate),
+                    slotTime: appointmentData.slotTime,
+                    date: appointmentData.date,
+                    status: getAppointmentStatusLabel(appointmentData),
+                    user: {
+                        id: appointmentData.userId,
+                        name: appointmentData.userData?.name || '',
+                        age: appointmentData.userData?.age || '',
+                        dob: appointmentData.userData?.dob || '',
+                        gender: appointmentData.userData?.gender || '',
+                        phone: appointmentData.userData?.phone || '',
+                        email: appointmentData.userData?.email || ''
+                    },
+                    doctor: {
+                        id: appointmentData.docId,
+                        name: appointmentData.docData?.name || '',
+                        speciality: appointmentData.docData?.speciality || '',
+                        degree: appointmentData.docData?.degree || ''
+                    }
+                },
+                medicalRecord: sanitizeMedicalRecord(appointmentData.medicalRecord || {}),
+                patientHistory
             }
         })
     } catch (error) {
@@ -352,10 +488,173 @@ const sendDoctorConsultationMessage = async (req, res) => {
     }
 }
 
+// API for doctor to save a full structured prescription from consultation
+const saveConsultationPrescriptionDoctor = async (req, res) => {
+    try {
+        const {
+            docId,
+            appointmentId,
+            complaints,
+            diseases,
+            symptoms,
+            diagnosis,
+            prescription,
+            vitals,
+            systemicExamination,
+            medicines,
+            dietAdvice,
+            nextVisit
+        } = req.body
+
+        if (!appointmentId) {
+            return res.json({ success: false, message: 'Appointment is required' })
+        }
+
+        const appointmentData = await appointmentModel.findById(appointmentId)
+        if (!appointmentData || appointmentData.docId !== docId) {
+            return res.json({ success: false, message: 'Unauthorized action' })
+        }
+
+        if (appointmentData.cancelled) {
+            return res.json({ success: false, message: 'Cannot save prescription for cancelled appointment' })
+        }
+
+        const medicalRecord = {
+            diseases: parseMedicalList(diseases),
+            symptoms: parseMedicalList(symptoms),
+            diagnosis: typeof diagnosis === 'string' ? diagnosis.trim() : '',
+            prescription: typeof prescription === 'string' ? prescription.trim() : '',
+            complaints: typeof complaints === 'string' ? complaints.trim() : '',
+            vitals: sanitizeVitals(vitals || {}),
+            systemicExamination: sanitizeSystemicExamination(systemicExamination || {}),
+            medicines: parsePrescriptionMedicines(medicines || []),
+            dietAdvice: typeof dietAdvice === 'string' ? dietAdvice.trim() : '',
+            nextVisit: typeof nextVisit === 'string' ? nextVisit.trim() : '',
+            updatedAt: Date.now()
+        }
+
+        if (!medicalRecord.prescription && medicalRecord.medicines.length > 0) {
+            medicalRecord.prescription = getMedicineSummaryText(medicalRecord.medicines)
+        }
+
+        if (!hasMedicalRecordData(medicalRecord)) {
+            return res.json({ success: false, message: 'Please add diagnosis, medicines, or any medical details before saving' })
+        }
+
+        await appointmentModel.findByIdAndUpdate(appointmentId, { medicalRecord })
+
+        return res.json({
+            success: true,
+            message: 'Prescription saved successfully',
+            medicalRecord: sanitizeMedicalRecord(medicalRecord)
+        })
+    } catch (error) {
+        console.log(error)
+        return res.json({ success: false, message: error.message })
+    }
+}
+
+// API for doctor to get AI diagnosis suggestions based on symptoms
+const suggestDiagnosisWithAiDoctor = async (req, res) => {
+    try {
+        const { docId, appointmentId, symptoms = [], notes = '' } = req.body
+
+        if (!appointmentId) {
+            return res.json({ success: false, message: 'Appointment is required' })
+        }
+
+        const appointmentData = await appointmentModel.findById(appointmentId)
+        if (!appointmentData || appointmentData.docId !== docId) {
+            return res.json({ success: false, message: 'Unauthorized action' })
+        }
+
+        const parsedSymptoms = parseMedicalList(symptoms)
+        if (!parsedSymptoms.length && !String(notes || '').trim()) {
+            return res.json({ success: false, message: 'Please provide symptoms or notes for AI diagnosis' })
+        }
+
+        const apiKey = process.env.OPENAI_API_KEY
+        if (!apiKey) {
+            return res.json({ success: false, message: 'OPENAI_API_KEY is missing in backend environment' })
+        }
+
+        const model = process.env.OPENAI_DIAGNOSIS_MODEL || 'gpt-4.1-mini'
+        const prompt = `
+You are a medical assistant for licensed doctors and must return strictly valid JSON.
+Input symptoms: ${JSON.stringify(parsedSymptoms)}
+Additional clinical notes: ${String(notes || '').trim() || 'N/A'}
+
+Return JSON with keys:
+- suggestedDiagnosis: string
+- confidence: "low" | "medium" | "high"
+- differentialDiagnoses: string[]
+- recommendedQuestions: string[]
+- redFlags: string[]
+- disclaimer: short sentence reminding final diagnosis is doctor's decision
+`.trim()
+
+        const aiResponse = await fetch('https://api.openai.com/v1/responses', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model,
+                input: prompt,
+                temperature: 0.2
+            })
+        })
+
+        if (!aiResponse.ok) {
+            const errorText = await aiResponse.text()
+            return res.json({ success: false, message: `OpenAI request failed: ${errorText}` })
+        }
+
+        const aiData = await aiResponse.json()
+        const rawText = aiData?.output_text || ''
+        const parsed = safeParseJson(rawText)
+
+        if (!parsed || typeof parsed !== 'object') {
+            return res.json({
+                success: true,
+                message: 'AI diagnosis generated (unstructured)',
+                diagnosis: {
+                    suggestedDiagnosis: rawText.trim() || 'No diagnosis returned',
+                    confidence: 'low',
+                    differentialDiagnoses: [],
+                    recommendedQuestions: [],
+                    redFlags: [],
+                    disclaimer: 'AI suggestions are supportive only. Final diagnosis must be made by the consulting doctor.'
+                }
+            })
+        }
+
+        return res.json({
+            success: true,
+            message: 'AI diagnosis generated',
+            diagnosis: {
+                suggestedDiagnosis: typeof parsed.suggestedDiagnosis === 'string' ? parsed.suggestedDiagnosis.trim() : '',
+                confidence: ['low', 'medium', 'high'].includes(parsed.confidence) ? parsed.confidence : 'low',
+                differentialDiagnoses: parseMedicalList(parsed.differentialDiagnoses),
+                recommendedQuestions: parseMedicalList(parsed.recommendedQuestions),
+                redFlags: parseMedicalList(parsed.redFlags),
+                disclaimer: typeof parsed.disclaimer === 'string' && parsed.disclaimer.trim()
+                    ? parsed.disclaimer.trim()
+                    : 'AI suggestions are supportive only. Final diagnosis must be made by the consulting doctor.'
+            }
+        })
+    } catch (error) {
+        console.log(error)
+        return res.json({ success: false, message: error.message })
+    }
+}
+
 // API to upload prescription for a doctor appointment
 const uploadPrescriptionDoctor = async (req, res) => {
     try {
-        const { docId, appointmentId } = req.body
+        const docId = req.body?.docId || req.docId
+        const { appointmentId } = req.body
         const prescriptionFile = req.file
 
         if (!appointmentId || !prescriptionFile) {
@@ -368,7 +667,10 @@ const uploadPrescriptionDoctor = async (req, res) => {
             return res.json({ success: false, message: 'Unauthorized action' })
         }
 
-        const fileUpload = await cloudinary.uploader.upload(prescriptionFile.path, { resource_type: "auto" })
+        const fileUpload = await cloudinary.uploader.upload(
+            prescriptionFile.path,
+            getPrescriptionUploadOptions(prescriptionFile)
+        )
         if (!fileUpload?.secure_url) {
             return res.json({ success: false, message: 'Unable to upload prescription' })
         }
@@ -379,6 +681,29 @@ const uploadPrescriptionDoctor = async (req, res) => {
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
+    }
+}
+
+// API for doctor to securely view prescription file for an appointment
+const viewPrescriptionDoctor = async (req, res) => {
+    try {
+        const docId = req.body?.docId || req.docId
+        const { appointmentId } = req.params
+
+        const appointmentData = await appointmentModel.findById(appointmentId)
+        if (!appointmentData || appointmentData.docId !== docId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized action' })
+        }
+        if (!appointmentData.prescriptionUrl) {
+            return res.status(404).json({ success: false, message: 'Prescription not found' })
+        }
+
+        return res.redirect(appointmentData.prescriptionUrl)
+    } catch (error) {
+        console.log(error)
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: error.message })
+        }
     }
 }
 
@@ -438,7 +763,20 @@ const downloadAppointmentReportDoctor = async (req, res) => {
 // API to update patient medical history for an appointment
 const updatePatientMedicalHistoryDoctor = async (req, res) => {
     try {
-        const { docId, appointmentId, diseases, symptoms, diagnosis, prescription } = req.body
+        const {
+            docId,
+            appointmentId,
+            diseases,
+            symptoms,
+            diagnosis,
+            prescription,
+            complaints,
+            vitals,
+            systemicExamination,
+            medicines,
+            dietAdvice,
+            nextVisit
+        } = req.body
 
         if (!appointmentId) {
             return res.json({ success: false, message: 'Appointment is required' })
@@ -458,7 +796,17 @@ const updatePatientMedicalHistoryDoctor = async (req, res) => {
             symptoms: parseMedicalList(symptoms),
             diagnosis: typeof diagnosis === 'string' ? diagnosis.trim() : '',
             prescription: typeof prescription === 'string' ? prescription.trim() : '',
+            complaints: typeof complaints === 'string' ? complaints.trim() : '',
+            vitals: sanitizeVitals(vitals || {}),
+            systemicExamination: sanitizeSystemicExamination(systemicExamination || {}),
+            medicines: parsePrescriptionMedicines(medicines || []),
+            dietAdvice: typeof dietAdvice === 'string' ? dietAdvice.trim() : '',
+            nextVisit: typeof nextVisit === 'string' ? nextVisit.trim() : '',
             updatedAt: Date.now()
+        }
+
+        if (!medicalRecord.prescription && medicalRecord.medicines.length > 0) {
+            medicalRecord.prescription = getMedicineSummaryText(medicalRecord.medicines)
         }
 
         if (!hasMedicalRecordData(medicalRecord)) {
@@ -467,7 +815,7 @@ const updatePatientMedicalHistoryDoctor = async (req, res) => {
 
         await appointmentModel.findByIdAndUpdate(appointmentId, { medicalRecord })
 
-        res.json({ success: true, message: 'Medical history updated', medicalRecord })
+        res.json({ success: true, message: 'Medical history updated', medicalRecord: sanitizeMedicalRecord(medicalRecord) })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -737,7 +1085,10 @@ export {
     appointmentComplete,
     getDoctorConsultation,
     sendDoctorConsultationMessage,
+    saveConsultationPrescriptionDoctor,
+    suggestDiagnosisWithAiDoctor,
     uploadPrescriptionDoctor,
+    viewPrescriptionDoctor,
     downloadAppointmentReportDoctor,
     updatePatientMedicalHistoryDoctor,
     getPatientMedicalHistoryDoctor,

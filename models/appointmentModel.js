@@ -44,6 +44,31 @@ const appointmentSchema = new mongoose.Schema({
         diagnosis: { type: String, default: '' },
         prescription: { type: String, default: '' },
         notes: { type: String, default: '' },
+        complaints: { type: String, default: '' },
+        vitals: {
+            pulse: { type: String, default: '' },
+            temperature: { type: String, default: '' },
+            spo2: { type: String, default: '' }
+        },
+        systemicExamination: {
+            cvs: { type: String, default: '' },
+            rs: { type: String, default: '' },
+            cns: { type: String, default: '' },
+            pa: { type: String, default: '' }
+        },
+        medicines: {
+            type: [{
+                name: { type: String, default: '' },
+                dosage: { type: String, default: '' },
+                timing: { type: String, default: '' },
+                qty: { type: String, default: '' },
+                composition: { type: String, default: '' },
+                notes: { type: String, default: '' }
+            }],
+            default: []
+        },
+        dietAdvice: { type: String, default: '' },
+        nextVisit: { type: String, default: '' },
         updatedAt: { type: Number, default: 0 }
     }
     

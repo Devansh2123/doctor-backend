@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginAdmin, appointmentsAdmin, appointmentCancel, uploadPrescriptionAdmin, downloadAppointmentReportAdmin, addDoctor, allDoctors, updateDoctorApproval, updateDoctorBlockStatus, allUsers, updateUserBlockStatus, adminDashboard } from '../controllers/adminController.js';
+import { loginAdmin, appointmentsAdmin, appointmentCancel, uploadPrescriptionAdmin, viewPrescriptionAdmin, downloadAppointmentReportAdmin, addDoctor, allDoctors, updateDoctorApproval, updateDoctorBlockStatus, allUsers, updateUserBlockStatus, adminDashboard } from '../controllers/adminController.js';
 import { listOffers, createOffer, updateOffer, deleteOffer, listMemberships, createMembership, updateMembership, deleteMembership, listInsurancePartners, createInsurancePartner, updateInsurancePartner, deleteInsurancePartner } from '../controllers/offersInsuranceAdminController.js';
 import { listClaimsAdmin, updateClaimStatus } from '../controllers/offerClaimController.js';
 import { changeAvailablity } from '../controllers/doctorController.js';
@@ -13,6 +13,7 @@ adminRouter.post("/add-doctor", authAdmin, upload.single('image'), addDoctor)
 adminRouter.get("/appointments", authAdmin, appointmentsAdmin)
 adminRouter.post("/cancel-appointment", authAdmin, appointmentCancel)
 adminRouter.post("/upload-prescription", authAdmin, upload.single('prescription'), uploadPrescriptionAdmin)
+adminRouter.get("/view-prescription/:appointmentId", authAdmin, viewPrescriptionAdmin)
 adminRouter.get("/download-report/:appointmentId", authAdmin, downloadAppointmentReportAdmin)
 adminRouter.get("/all-doctors", authAdmin, allDoctors)
 adminRouter.post("/update-doctor-approval", authAdmin, updateDoctorApproval)
