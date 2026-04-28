@@ -28,6 +28,12 @@ const getRazorpayInstance = () => {
     })
 }
 
+const getAccessPassFee = () => Number(process.env.ACCESS_PASS_FEE || 99)
+const accessPassDurationDays = Number(process.env.ACCESS_PASS_DURATION_DAYS || 30)
+const generateSixDigitOtp = () => String(Math.floor(100000 + (Math.random() * 900000)))
+
+const createToken = (userId) => jwt.sign({ id: userId }, process.env.JWT_SECRET)
+
 // API to register user
 const registerUser = async (req, res) => {
 
@@ -88,12 +94,174 @@ const loginUser = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password)
 
         if (isMatch) {
-            const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET)
+            const token = createToken(user._id)
             res.json({ success: true, token })
         }
         else {
             res.json({ success: false, message: "Invalid credentials" })
         }
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+// API to send OTP for guest member login
+const sendGuestOtp = async (req, res) => {
+    try {
+        const { phone, name = "Guest Member" } = req.body
+        if (!phone) {
+            return res.json({ success: false, message: "Phone number is required" })
+        }
+
+        const phoneDigits = String(phone).replace(/\D/g, "")
+        if (phoneDigits.length < 10) {
+            return res.json({ success: false, message: "Please enter a valid phone number" })
+        }
+
+        const normalizedPhone = phoneDigits.slice(-10)
+        let user = await userModel.findOne({ phone: normalizedPhone })
+
+        if (!user) {
+            const guestEmail = `guest_${normalizedPhone}@guest.local`
+            const salt = await bcrypt.genSalt(10)
+            const password = await bcrypt.hash(`guest-${normalizedPhone}-${Date.now()}`, salt)
+            user = await userModel.create({
+                name,
+                phone: normalizedPhone,
+                email: guestEmail,
+                password,
+                isGuestMember: true
+            })
+        }
+
+        if (user.isBlocked) {
+            return res.json({ success: false, message: "Your account is blocked. Contact admin." })
+        }
+
+        const otp = generateSixDigitOtp()
+        const expiresAt = Date.now() + (5 * 60 * 1000)
+        await userModel.findByIdAndUpdate(user._id, { otpCode: otp, otpExpiresAt: expiresAt, isGuestMember: true })
+
+        console.log(`Guest OTP for ${normalizedPhone}: ${otp}`)
+
+        const payload = { success: true, message: "OTP sent successfully" }
+        if (process.env.NODE_ENV !== "production") {
+            payload.devOtp = otp
+        }
+
+        res.json(payload)
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+// API to verify OTP for guest member login
+const verifyGuestOtp = async (req, res) => {
+    try {
+        const { phone, otp } = req.body
+        if (!phone || !otp) {
+            return res.json({ success: false, message: "Phone and OTP are required" })
+        }
+
+        const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10)
+        const user = await userModel.findOne({ phone: normalizedPhone })
+        if (!user) {
+            return res.json({ success: false, message: "Guest member not found" })
+        }
+        if (user.isBlocked) {
+            return res.json({ success: false, message: "Your account is blocked. Contact admin." })
+        }
+        if (!user.otpCode || !user.otpExpiresAt || user.otpExpiresAt < Date.now()) {
+            return res.json({ success: false, message: "OTP expired. Please request a new OTP" })
+        }
+        if (String(user.otpCode) !== String(otp).trim()) {
+            return res.json({ success: false, message: "Invalid OTP" })
+        }
+
+        await userModel.findByIdAndUpdate(user._id, { otpCode: "", otpExpiresAt: 0, isGuestMember: true })
+        const token = createToken(user._id)
+        res.json({ success: true, token, message: "Guest member login successful" })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+const getAccessPassStatus = async (req, res) => {
+    try {
+        const { userId } = req.body
+        const user = await userModel.findById(userId).select("accessPassActive accessPassAmount accessPassActivatedAt accessPassExpiresAt")
+        if (!user) {
+            return res.json({ success: false, message: "User not found" })
+        }
+        res.json({ success: true, accessPass: user })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+const createAccessPassRazorpayOrder = async (req, res) => {
+    try {
+        const { userId } = req.body
+        const user = await userModel.findById(userId)
+        if (!user) return res.json({ success: false, message: "User not found" })
+        if (user.isBlocked) return res.json({ success: false, message: "Your account is blocked. Contact admin." })
+
+        const razorpayInstance = getRazorpayInstance()
+        if (!razorpayInstance) {
+            return res.json({ success: false, message: "Razorpay is not configured" })
+        }
+
+        const amount = getAccessPassFee()
+        const order = await razorpayInstance.orders.create({
+            amount: amount * 100,
+            currency: (process.env.CURRENCY || "INR"),
+            receipt: `access_${userId}_${Date.now()}`
+        })
+
+        await userModel.findByIdAndUpdate(userId, { accessPassPendingOrderId: order.id })
+        res.json({ success: true, order, amount })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+const verifyAccessPassRazorpay = async (req, res) => {
+    try {
+        const { userId, razorpay_order_id } = req.body
+        if (!razorpay_order_id) return res.json({ success: false, message: "Order ID is required" })
+
+        const user = await userModel.findById(userId)
+        if (!user) return res.json({ success: false, message: "User not found" })
+        if (!user.accessPassPendingOrderId || user.accessPassPendingOrderId !== razorpay_order_id) {
+            return res.json({ success: false, message: "Invalid access pass order" })
+        }
+
+        const razorpayInstance = getRazorpayInstance()
+        if (!razorpayInstance) {
+            return res.json({ success: false, message: "Razorpay is not configured" })
+        }
+
+        const orderInfo = await razorpayInstance.orders.fetch(razorpay_order_id)
+        if (orderInfo.status !== "paid") {
+            return res.json({ success: false, message: "Payment not completed" })
+        }
+
+        const activatedAt = Date.now()
+        const expiresAt = activatedAt + (accessPassDurationDays * 24 * 60 * 60 * 1000)
+        await userModel.findByIdAndUpdate(userId, {
+            accessPassActive: true,
+            accessPassAmount: getAccessPassFee(),
+            accessPassActivatedAt: activatedAt,
+            accessPassExpiresAt: expiresAt,
+            accessPassPendingOrderId: ""
+        })
+
+        res.json({ success: true, message: "Access pass activated successfully" })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -1065,8 +1233,13 @@ const addDoctorFeedback = async (req, res) => {
 
 export {
     loginUser,
+    sendGuestOtp,
+    verifyGuestOtp,
     registerUser,
     resetPasswordByEmail,
+    getAccessPassStatus,
+    createAccessPassRazorpayOrder,
+    verifyAccessPassRazorpay,
     getProfile,
     updateProfile,
     bookAppointment,

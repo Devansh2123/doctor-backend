@@ -10,6 +10,14 @@ const userSchema = new mongoose.Schema({
     dob: { type: String, default: 'Not Selected' },
     password: { type: String, required: true },
     isBlocked: { type: Boolean, default: false },
+    isGuestMember: { type: Boolean, default: false },
+    otpCode: { type: String, default: '' },
+    otpExpiresAt: { type: Number, default: 0 },
+    accessPassActive: { type: Boolean, default: false },
+    accessPassAmount: { type: Number, default: 0 },
+    accessPassActivatedAt: { type: Number, default: 0 },
+    accessPassExpiresAt: { type: Number, default: 0 },
+    accessPassPendingOrderId: { type: String, default: '' },
 })
 
 const userModel = mongoose.models.user || mongoose.model("user", userSchema);
