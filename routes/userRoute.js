@@ -3,7 +3,6 @@ import { loginUser, sendGuestOtp, verifyGuestOtp, registerUser, resetPasswordByE
 import { claimOffer, claimMembership, claimInsurance, listUserClaims } from '../controllers/offerClaimController.js';
 import upload from '../middleware/multer.js';
 import authUser from '../middleware/authUser.js';
-import requireAccessPass from '../middleware/requireAccessPass.js';
 import restrictGuestUser from '../middleware/restrictGuestUser.js';
 const userRouter = express.Router();
 
@@ -18,21 +17,21 @@ userRouter.post("/access-pass/verify-razorpay", authUser, verifyAccessPassRazorp
 
 userRouter.get("/get-profile", authUser, getProfile)
 userRouter.post("/update-profile", upload.single('image'), authUser, restrictGuestUser, updateProfile)
-userRouter.post("/book-appointment", authUser, restrictGuestUser, requireAccessPass, bookAppointment)
-userRouter.get("/appointments", authUser, restrictGuestUser, requireAccessPass, listAppointment)
-userRouter.post("/cancel-appointment", authUser, restrictGuestUser, requireAccessPass, cancelAppointment)
-userRouter.post("/reschedule-appointment", authUser, restrictGuestUser, requireAccessPass, rescheduleAppointment)
-userRouter.get("/download-report/:appointmentId", authUser, restrictGuestUser, requireAccessPass, downloadAppointmentReport)
-userRouter.post("/payment-razorpay", authUser, restrictGuestUser, requireAccessPass, paymentRazorpay)
-userRouter.post("/verifyRazorpay", authUser, restrictGuestUser, requireAccessPass, verifyRazorpay)
-userRouter.post("/payment-stripe", authUser, restrictGuestUser, requireAccessPass, paymentStripe)
-userRouter.post("/verifyStripe", authUser, restrictGuestUser, requireAccessPass, verifyStripe)
-userRouter.post("/add-feedback", authUser, restrictGuestUser, requireAccessPass, addDoctorFeedback)
-userRouter.get("/consultation/:appointmentId", authUser, restrictGuestUser, requireAccessPass, getUserConsultation)
-userRouter.post("/consultation/message", authUser, restrictGuestUser, requireAccessPass, sendUserConsultationMessage)
-userRouter.post("/claim-offer", authUser, restrictGuestUser, requireAccessPass, claimOffer)
-userRouter.post("/claim-membership", authUser, restrictGuestUser, requireAccessPass, claimMembership)
-userRouter.post("/claim-insurance", authUser, restrictGuestUser, requireAccessPass, claimInsurance)
-userRouter.get("/my-claims", authUser, restrictGuestUser, requireAccessPass, listUserClaims)
+userRouter.post("/book-appointment", authUser, restrictGuestUser, bookAppointment)
+userRouter.get("/appointments", authUser, restrictGuestUser, listAppointment)
+userRouter.post("/cancel-appointment", authUser, restrictGuestUser, cancelAppointment)
+userRouter.post("/reschedule-appointment", authUser, restrictGuestUser, rescheduleAppointment)
+userRouter.get("/download-report/:appointmentId", authUser, restrictGuestUser, downloadAppointmentReport)
+userRouter.post("/payment-razorpay", authUser, restrictGuestUser, paymentRazorpay)
+userRouter.post("/verifyRazorpay", authUser, restrictGuestUser, verifyRazorpay)
+userRouter.post("/payment-stripe", authUser, restrictGuestUser, paymentStripe)
+userRouter.post("/verifyStripe", authUser, restrictGuestUser, verifyStripe)
+userRouter.post("/add-feedback", authUser, restrictGuestUser, addDoctorFeedback)
+userRouter.get("/consultation/:appointmentId", authUser, restrictGuestUser, getUserConsultation)
+userRouter.post("/consultation/message", authUser, restrictGuestUser, sendUserConsultationMessage)
+userRouter.post("/claim-offer", authUser, restrictGuestUser, claimOffer)
+userRouter.post("/claim-membership", authUser, restrictGuestUser, claimMembership)
+userRouter.post("/claim-insurance", authUser, restrictGuestUser, claimInsurance)
+userRouter.get("/my-claims", authUser, restrictGuestUser, listUserClaims)
 
 export default userRouter;
