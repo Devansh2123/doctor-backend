@@ -10,6 +10,7 @@ import razorpay from 'razorpay';
 import { sendDoctorFeedbackEmail } from "../utils/mailService.js";
 import PDFDocument from "pdfkit";
 import { notifyAppointmentEvent } from "../services/appointmentNotificationService.js";
+import { sanitizeAppointment, sanitizeDoctor, sanitizeRazorpayOrder, sanitizeUser } from "../utils/responseSanitizer.js";
 
 // Gateway Initialize (guarded to avoid crashes when env is missing)
 const getStripeInstance = () => {
@@ -145,12 +146,7 @@ const sendGuestOtp = async (req, res) => {
 
         console.log(`Guest OTP for ${normalizedPhone}: ${otp}`)
 
-        const payload = { success: true, message: "OTP sent successfully" }
-        if (process.env.NODE_ENV !== "production") {
-            payload.devOtp = otp
-        }
-
-        res.json(payload)
+        res.json({ success: true, message: "OTP sent successfully" })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -196,7 +192,7 @@ const getAccessPassStatus = async (req, res) => {
         if (!user) {
             return res.json({ success: false, message: "User not found" })
         }
-        res.json({ success: true, accessPass: user })
+        res.json({ success: true, accessPass: sanitizeUser(user, { includeAccessPass: true }) })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -223,7 +219,7 @@ const createAccessPassRazorpayOrder = async (req, res) => {
         })
 
         await userModel.findByIdAndUpdate(userId, { accessPassPendingOrderId: order.id })
-        res.json({ success: true, order, amount })
+        res.json({ success: true, order: sanitizeRazorpayOrder(order), amount })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -307,7 +303,8 @@ const getProfile = async (req, res) => {
 
     try {
         const { userId } = req.body
-        const userData = await userModel.findById(userId).select('-password')
+        const userRaw = await userModel.findById(userId).select('-password -otpCode -otpExpiresAt -accessPassPendingOrderId')
+        const userData = sanitizeUser(userRaw, { includeAccessPass: true })
 
         res.json({ success: true, userData })
 
@@ -400,7 +397,7 @@ const isDoctorWorkingDay = (doctorData, dateObj) => {
 }
 
 const getNextAvailableEmergencySlot = (doctorData) => {
-    const slotsBooked = doctorData?.slots_booked || {}
+    const slotsBooked = (doctorData?.slots_booked && typeof doctorData.slots_booked === 'object') ? doctorData.slots_booked : {}
     const now = new Date()
 
     for (let i = 0; i < 7; i++) {
@@ -417,15 +414,17 @@ const getNextAvailableEmergencySlot = (doctorData) => {
 
         const allowedTimes = getDoctorAllowedSlotTimes(doctorData)
 
-        if (allowedTimes) {
+        if (allowedTimes && Array.isArray(allowedTimes)) {
             for (const t of allowedTimes) {
+                if (typeof t !== 'string') continue
                 const parsed = parseSlotTimeTo24(t)
                 if (!parsed) continue
 
                 const slotDateTime = new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0, 0)
                 if (slotDateTime <= now) continue
 
-                const isBooked = Array.isArray(slotsBooked[slotDate]) && slotsBooked[slotDate].includes(t)
+                const slotBookedArray = slotsBooked[slotDate]
+                const isBooked = Array.isArray(slotBookedArray) && slotBookedArray.includes(t)
                 if (!isBooked) return { slotDate, slotTime: t }
             }
             continue
@@ -455,7 +454,8 @@ const getNextAvailableEmergencySlot = (doctorData) => {
                 continue
             }
 
-            const isBooked = Array.isArray(slotsBooked[slotDate]) && slotsBooked[slotDate].includes(t)
+            const slotBookedArray = slotsBooked[slotDate]
+            const isBooked = Array.isArray(slotBookedArray) && slotBookedArray.includes(t)
             if (!isBooked) return { slotDate, slotTime: t }
 
             currentDate.setMinutes(currentDate.getMinutes() + 30)
@@ -638,8 +638,8 @@ const bookAppointment = async (req, res) => {
             return res.json({ success: false, message: 'Selected slot is outside doctor availability' })
         }
 
-        const doctorSnapshot = docData.toObject()
-        delete doctorSnapshot.slots_booked
+        const doctorSnapshot = sanitizeDoctor(docData, { includeSchedule: false })
+        const userSnapshot = sanitizeUser(userData)
         const requiresApproval = docData.appointmentApprovalMode === 'manual'
         const approvalStatus = requiresApproval ? 'pending' : 'approved'
         const medicalRecord = {
@@ -654,7 +654,7 @@ const bookAppointment = async (req, res) => {
         const appointmentData = {
             userId,
             docId,
-            userData,
+            userData: userSnapshot,
             docData: doctorSnapshot,
             amount: docData.fees,
             slotTime,
@@ -901,8 +901,7 @@ const rescheduleAppointment = async (req, res) => {
 
         const requiresApproval = doctorData.appointmentApprovalMode === 'manual'
         const approvalStatus = requiresApproval ? 'pending' : 'approved'
-        const doctorSnapshot = doctorData.toObject()
-        delete doctorSnapshot.slots_booked
+        const doctorSnapshot = sanitizeDoctor(doctorData, { includeSchedule: false })
 
         try {
             await appointmentModel.findByIdAndUpdate(appointmentId, {
@@ -957,9 +956,10 @@ const listAppointment = async (req, res) => {
     try {
 
         const { userId } = req.body
-        const appointments = await appointmentModel
+        const appointments = (await appointmentModel
             .find({ userId })
-            .sort({ date: 1 })
+            .sort({ date: 1 }))
+            .map((appointment) => sanitizeAppointment(appointment))
 
         res.json({ success: true, appointments })
 
@@ -1051,7 +1051,7 @@ const paymentRazorpay = async (req, res) => {
         // creation of an order
         const order = await razorpayInstance.orders.create(options)
 
-        res.json({ success: true, order })
+        res.json({ success: true, order: sanitizeRazorpayOrder(order) })
 
     } catch (error) {
         console.log(error)

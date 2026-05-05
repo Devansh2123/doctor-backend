@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import appointmentModel from "../models/appointmentModel.js";
 import doctorModel from "../models/doctorModel.js";
+import adminCredentialModel from "../models/adminCredentialModel.js";
 import bcrypt from "bcrypt";
 import validator from "validator";
 import { v2 as cloudinary } from "cloudinary";
@@ -9,6 +10,7 @@ import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
 import { notifyAppointmentEvent } from "../services/appointmentNotificationService.js";
+import { sanitizeAppointment, sanitizeDoctor, sanitizeUser } from "../utils/responseSanitizer.js";
 
 const getApprovalStatus = (appointment) => appointment?.approvalStatus || 'approved'
 const getAppointmentStatusLabel = (appointment) => {
@@ -60,8 +62,21 @@ const loginAdmin = async (req, res) => {
 
         const { email, password } = req.body
 
-        if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
-            const token = jwt.sign(email + password, process.env.JWT_SECRET)
+        if (!email || !password) {
+            return res.json({ success: false, message: "Email and password are required" })
+        }
+
+        if (email !== process.env.ADMIN_EMAIL) {
+            return res.json({ success: false, message: "Invalid credentials" })
+        }
+
+        const savedCredential = await adminCredentialModel.findOne({ email })
+        const passwordMatches = savedCredential
+            ? await bcrypt.compare(password, savedCredential.password)
+            : password === process.env.ADMIN_PASSWORD
+
+        if (passwordMatches) {
+            const token = jwt.sign({ role: "admin", email }, process.env.JWT_SECRET)
             res.json({ success: true, token })
         } else {
             res.json({ success: false, message: "Invalid credentials" })
@@ -74,12 +89,50 @@ const loginAdmin = async (req, res) => {
 
 }
 
+// API to reset admin password using registered email
+const resetAdminPasswordByEmail = async (req, res) => {
+    try {
+        const { email, newPassword } = req.body
+
+        if (!email || !newPassword) {
+            return res.json({ success: false, message: "Email and new password are required" })
+        }
+
+        if (!validator.isEmail(email)) {
+            return res.json({ success: false, message: "Please enter a valid email" })
+        }
+
+        if (email !== process.env.ADMIN_EMAIL) {
+            return res.json({ success: false, message: "No admin found with this email" })
+        }
+
+        if (newPassword.length < 8) {
+            return res.json({ success: false, message: "Please enter a strong password" })
+        }
+
+        const salt = await bcrypt.genSalt(10)
+        const hashedPassword = await bcrypt.hash(newPassword, salt)
+
+        await adminCredentialModel.findOneAndUpdate(
+            { email },
+            { email, password: hashedPassword, updatedAt: Date.now() },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        )
+
+        res.json({ success: true, message: "Admin password changed successfully" })
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
 
 // API to get all appointments list
 const appointmentsAdmin = async (req, res) => {
     try {
 
-        const appointments = await appointmentModel.find({}).sort({ date: 1 })
+        const appointments = (await appointmentModel.find({}).sort({ date: 1 }))
+            .map((appointment) => sanitizeAppointment(appointment))
         res.json({ success: true, appointments })
 
     } catch (error) {
@@ -308,7 +361,8 @@ const addDoctor = async (req, res) => {
 const allDoctors = async (req, res) => {
     try {
 
-        const doctors = await doctorModel.find({}).select('-password')
+        const doctors = (await doctorModel.find({}).select('-password'))
+            .map((doctor) => sanitizeDoctor(doctor, { includeAdminFields: true, includeEmail: true }))
         res.json({ success: true, doctors })
 
     } catch (error) {
@@ -354,7 +408,8 @@ const updateDoctorBlockStatus = async (req, res) => {
 // API to get all users list for admin panel
 const allUsers = async (req, res) => {
     try {
-        const users = await userModel.find({}).select('-password')
+        const users = (await userModel.find({}).select('-password -otpCode -otpExpiresAt -accessPassPendingOrderId'))
+            .map((user) => sanitizeUser(user, { includeAdminFields: true, includeAccessPass: true }))
         res.json({ success: true, users })
     } catch (error) {
         console.log(error)
@@ -548,7 +603,7 @@ const adminDashboard = async (req, res) => {
             pendingDoctorApprovals: doctors.filter((doctor) => doctor.isApproved === false).length,
             blockedDoctors: doctors.filter((doctor) => doctor.isBlocked).length,
             blockedUsers: users.filter((user) => user.isBlocked).length,
-            latestAppointments: appointments.slice().reverse(),
+            latestAppointments: appointments.slice().reverse().map((appointment) => sanitizeAppointment(appointment)),
             revenueAnalytics
         }
 
@@ -562,6 +617,7 @@ const adminDashboard = async (req, res) => {
 
 export {
     loginAdmin,
+    resetAdminPasswordByEmail,
     appointmentsAdmin,
     appointmentCancel,
     uploadPrescriptionAdmin,

@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import validator from "validator";
 import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/appointmentModel.js";
 import { v2 as cloudinary } from "cloudinary";
@@ -7,6 +8,7 @@ import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
 import { notifyAppointmentEvent } from "../services/appointmentNotificationService.js";
+import { sanitizeAppointment, sanitizeDoctor } from "../utils/responseSanitizer.js";
 
 // API for doctor Login 
 const loginDoctor = async (req, res) => {
@@ -36,6 +38,40 @@ const loginDoctor = async (req, res) => {
         }
 
 
+    } catch (error) {
+        console.log(error)
+        res.json({ success: false, message: error.message })
+    }
+}
+
+// API to reset doctor password using registered email
+const resetDoctorPasswordByEmail = async (req, res) => {
+    try {
+        const { email, newPassword } = req.body
+
+        if (!email || !newPassword) {
+            return res.json({ success: false, message: "Email and new password are required" })
+        }
+
+        if (!validator.isEmail(email)) {
+            return res.json({ success: false, message: "Please enter a valid email" })
+        }
+
+        if (newPassword.length < 8) {
+            return res.json({ success: false, message: "Please enter a strong password" })
+        }
+
+        const doctor = await doctorModel.findOne({ email })
+        if (!doctor) {
+            return res.json({ success: false, message: "No doctor found with this email" })
+        }
+
+        const salt = await bcrypt.genSalt(10)
+        const hashedPassword = await bcrypt.hash(newPassword, salt)
+
+        await doctorModel.findByIdAndUpdate(doctor._id, { password: hashedPassword })
+
+        res.json({ success: true, message: "Doctor password changed successfully" })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -314,7 +350,8 @@ const appointmentsDoctor = async (req, res) => {
     try {
 
         const { docId } = req.body
-        const appointments = await appointmentModel.find({ docId })
+        const appointments = (await appointmentModel.find({ docId }))
+            .map((appointment) => sanitizeAppointment(appointment))
 
         res.json({ success: true, appointments })
 
@@ -902,7 +939,8 @@ const getPatientMedicalHistoryDoctor = async (req, res) => {
 const doctorList = async (req, res) => {
     try {
 
-        const doctors = await doctorModel.find({ isApproved: { $ne: false }, isBlocked: { $ne: true } }).select(['-password', '-email'])
+        const doctors = (await doctorModel.find({ isApproved: { $ne: false }, isBlocked: { $ne: true } }).select(['-password', '-email']))
+            .map((doctor) => sanitizeDoctor(doctor))
         res.json({ success: true, doctors })
 
     } catch (error) {
@@ -933,7 +971,8 @@ const doctorProfile = async (req, res) => {
     try {
 
         const { docId } = req.body
-        const profileData = await doctorModel.findById(docId).select('-password')
+        const profileRaw = await doctorModel.findById(docId).select('-password')
+        const profileData = sanitizeDoctor(profileRaw, { includeAdminFields: true, includeEmail: true })
 
         res.json({ success: true, profileData })
 
@@ -1011,8 +1050,9 @@ const doctorDashboard = async (req, res) => {
             pendingRequests: pendingRequests.length,
             todayScheduleCount: todaySchedule.length,
             todaySchedule,
-            latestAppointments
+            latestAppointments: latestAppointments.map((appointment) => sanitizeAppointment(appointment))
         }
+        dashData.todaySchedule = todaySchedule.map((appointment) => sanitizeAppointment(appointment))
 
         res.json({ success: true, dashData })
 
@@ -1118,6 +1158,7 @@ const rejectAppointmentRequestDoctor = async (req, res) => {
 
 export {
     loginDoctor,
+    resetDoctorPasswordByEmail,
     appointmentsDoctor,
     appointmentCancel,
     doctorList,
