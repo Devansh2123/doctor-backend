@@ -155,7 +155,7 @@ const getInitialData = async (req, res) => {
 
         // Get doctors
         const doctors = (await doctorModel.find({ isApproved: { $ne: false }, isBlocked: { $ne: true } }).select(['-password', '-email']))
-            .map((doctor) => sanitizeDoctor(doctor, { includeFeedbacks: true }))
+            .map((doctor) => sanitizeDoctor(doctor))
 
         // Check for user token
         let userData = null
