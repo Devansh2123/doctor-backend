@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import validator from "validator";
 import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/appointmentModel.js";
+import userModel from "../models/userModel.js";
 import { v2 as cloudinary } from "cloudinary";
 import PDFDocument from "pdfkit";
 import fs from "fs";
@@ -345,13 +346,27 @@ const releaseDoctorSlot = async (docId, slotDate, slotTime) => {
     await doctorModel.findByIdAndUpdate(docId, { slots_booked: slotsBooked })
 }
 
+const ensureAppointmentPatientCode = async (appointment) => {
+    if (!appointment || appointment.userData?.patientCode) return appointment
+
+    const user = await userModel.findById(appointment.userId).select('patientCode')
+    if (user?.patientCode) {
+        appointment.userData = { ...(appointment.userData || {}), patientCode: user.patientCode }
+        await appointmentModel.findByIdAndUpdate(appointment._id, { 'userData.patientCode': user.patientCode })
+    }
+    return appointment
+}
+
 // API to get doctor appointments for doctor panel
 const appointmentsDoctor = async (req, res) => {
     try {
 
         const { docId } = req.body
-        const appointments = (await appointmentModel.find({ docId }))
-            .map((appointment) => sanitizeAppointment(appointment))
+                const appointmentsDocs = await appointmentModel.find({ docId })
+        for (const appointment of appointmentsDocs) {
+            await ensureAppointmentPatientCode(appointment)
+        }
+        const appointments = appointmentsDocs.map((appointment) => sanitizeAppointment(appointment))
 
         res.json({ success: true, appointments })
 
@@ -464,6 +479,8 @@ const getDoctorConsultation = async (req, res) => {
             await appointmentModel.findByIdAndUpdate(appointmentId, { consultationRoomId: roomId })
         }
 
+        await ensureAppointmentPatientCode(appointmentData)
+
         const patientHistoryRaw = await appointmentModel
             .find({
                 docId,
@@ -486,6 +503,7 @@ const getDoctorConsultation = async (req, res) => {
                 messages: appointmentData.consultationMessages || [],
                 appointment: {
                     id: appointmentData._id,
+                    appointmentCode: appointmentData.appointmentCode || '',
                     slotDate: appointmentData.slotDate,
                     slotDateLabel: formatSlotDateReadable(appointmentData.slotDate),
                     slotTime: appointmentData.slotTime,
@@ -493,6 +511,7 @@ const getDoctorConsultation = async (req, res) => {
                     status: getAppointmentStatusLabel(appointmentData),
                     user: {
                         id: appointmentData.userId,
+                        patientCode: appointmentData.userData?.patientCode || '',
                         name: appointmentData.userData?.name || '',
                         age: appointmentData.userData?.age || '',
                         dob: appointmentData.userData?.dob || '',
@@ -645,41 +664,51 @@ const suggestDiagnosisWithAiDoctor = async (req, res) => {
             return res.json({ success: false, message: 'OPENAI_API_KEY is missing in backend environment' })
         }
 
-        const model = process.env.OPENAI_DIAGNOSIS_MODEL || 'gpt-4.1-mini'
-        const prompt = `
-You are a medical assistant for licensed doctors and must return strictly valid JSON.
-Input symptoms: ${JSON.stringify(parsedSymptoms)}
-Additional clinical notes: ${String(notes || '').trim() || 'N/A'}
+        const model = process.env.OPENAI_DIAGNOSIS_MODEL || 'gemini-2.5-flash'
+        const prompt = `You are a medical assistant for licensed doctors. Return ONLY valid JSON (no markdown, no extra text).
+Symptoms: ${parsedSymptoms.join(', ')}
+Notes: ${String(notes || '').trim() || 'N/A'}
 
-Return JSON with keys:
-- suggestedDiagnosis: string
-- confidence: "low" | "medium" | "high"
-- differentialDiagnoses: string[]
-- recommendedQuestions: string[]
-- redFlags: string[]
-- disclaimer: short sentence reminding final diagnosis is doctor's decision
-`.trim()
+Return this JSON structure with SHORT, ACCURATE responses:
+{
+  "suggestedDiagnosis": "most likely diagnosis (1 line)",
+  "confidence": "low|medium|high",
+  "differentialDiagnoses": ["other possible diagnosis 1", "diagnosis 2"],
+  "recommendedQuestions": ["key question 1", "key question 2"],
+  "redFlags": ["warning sign 1", "warning sign 2"],
+  "disclaimer": "brief medical disclaimer"
+}`.trim()
 
-        const aiResponse = await fetch('https://api.openai.com/v1/responses', {
+        const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model,
-                input: prompt,
-                temperature: 0.2
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: prompt
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.2,
+                    topP: 0.8,
+                    topK: 40
+                }
             })
         })
 
         if (!aiResponse.ok) {
             const errorText = await aiResponse.text()
-            return res.json({ success: false, message: `OpenAI request failed: ${errorText}` })
+            return res.json({ success: false, message: `Gemini request failed: ${errorText}` })
         }
 
         const aiData = await aiResponse.json()
-        const rawText = aiData?.output_text || ''
+        const rawText = aiData?.candidates?.[0]?.content?.parts?.[0]?.text || ''
         const parsed = safeParseJson(rawText)
 
         if (!parsed || typeof parsed !== 'object') {

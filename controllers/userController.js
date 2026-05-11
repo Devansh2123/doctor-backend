@@ -4,6 +4,7 @@ import validator from "validator";
 import userModel from "../models/userModel.js";
 import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/appointmentModel.js";
+import counterModel from "../models/counterModel.js";
 import { v2 as cloudinary } from 'cloudinary'
 import stripe from "stripe";
 import razorpay from 'razorpay';
@@ -17,6 +18,22 @@ const getStripeInstance = () => {
     const secret = process.env.STRIPE_SECRET_KEY
     if (!secret) return null
     return new stripe(secret)
+}
+
+const getNextPatientCode = async () => {
+    const counter = await counterModel.findOneAndUpdate(
+        { _id: 'patientCode' },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+    )
+    return counter.seq
+}
+
+const ensurePatientCode = async (user) => {
+    if (!user) return user
+    if (user.patientCode) return user
+    const nextCode = await getNextPatientCode()
+    return await userModel.findByIdAndUpdate(user._id, { patientCode: nextCode }, { new: true })
 }
 
 const getRazorpayInstance = () => {
@@ -64,6 +81,7 @@ const registerUser = async (req, res) => {
             name,
             email,
             password: hashedPassword,
+            patientCode: await getNextPatientCode()
         }
 
         const newUser = new userModel(userData)
@@ -83,7 +101,7 @@ const loginUser = async (req, res) => {
 
     try {
         const { email, password } = req.body;
-        const user = await userModel.findOne({ email })
+        let user = await userModel.findOne({ email })
 
         if (!user) {
             return res.json({ success: false, message: "User does not exist" })
@@ -95,6 +113,7 @@ const loginUser = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password)
 
         if (isMatch) {
+            user = await ensurePatientCode(user)
             const token = createToken(user._id)
             res.json({ success: true, token })
         }
@@ -132,8 +151,11 @@ const sendGuestOtp = async (req, res) => {
                 phone: normalizedPhone,
                 email: guestEmail,
                 password,
-                isGuestMember: true
+                isGuestMember: true,
+                patientCode: await getNextPatientCode()
             })
+        } else {
+            user = await ensurePatientCode(user)
         }
 
         if (user.isBlocked) {
@@ -162,10 +184,11 @@ const verifyGuestOtp = async (req, res) => {
         }
 
         const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10)
-        const user = await userModel.findOne({ phone: normalizedPhone })
+        let user = await userModel.findOne({ phone: normalizedPhone })
         if (!user) {
             return res.json({ success: false, message: "Guest member not found" })
         }
+        user = await ensurePatientCode(user)
         if (user.isBlocked) {
             return res.json({ success: false, message: "Your account is blocked. Contact admin." })
         }
@@ -594,10 +617,8 @@ const bookAppointment = async (req, res) => {
         if (!userId || !docId) {
             return res.json({ success: false, message: 'Missing booking details' })
         }
-        const [docData, userData] = await Promise.all([
-            doctorModel.findById(docId).select("-password"),
-            userModel.findById(userId).select("-password")
-        ])
+        const docData = await doctorModel.findById(docId).select("-password")
+        let userData = await userModel.findById(userId).select("-password")
 
         if (!docData || !userData) {
             return res.json({ success: false, message: 'Doctor or User not found' })
@@ -639,6 +660,7 @@ const bookAppointment = async (req, res) => {
         }
 
         const doctorSnapshot = sanitizeDoctor(docData, { includeSchedule: false })
+        userData = await ensurePatientCode(userData)
         const userSnapshot = sanitizeUser(userData)
         const requiresApproval = docData.appointmentApprovalMode === 'manual'
         const approvalStatus = requiresApproval ? 'pending' : 'approved'
@@ -654,6 +676,7 @@ const bookAppointment = async (req, res) => {
         const appointmentData = {
             userId,
             docId,
+            appointmentCode: await getNextAppointmentCode(),
             userData: userSnapshot,
             docData: doctorSnapshot,
             amount: docData.fees,
