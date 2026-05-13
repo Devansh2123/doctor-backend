@@ -20,6 +20,8 @@ const getStripeInstance = () => {
     return new stripe(secret)
 }
 
+const BOOKING_WINDOW_DAYS = 15
+
 const getNextPatientCode = async () => {
     const counter = await counterModel.findOneAndUpdate(
         { _id: 'patientCode' },
@@ -34,6 +36,15 @@ const ensurePatientCode = async (user) => {
     if (user.patientCode) return user
     const nextCode = await getNextPatientCode()
     return await userModel.findByIdAndUpdate(user._id, { patientCode: nextCode }, { new: true })
+}
+
+const getNextAppointmentCode = async () => {
+    const counter = await counterModel.findOneAndUpdate(
+        { _id: 'appointmentCode' },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+    )
+    return counter.seq
 }
 
 const getRazorpayInstance = () => {
@@ -520,10 +531,10 @@ const isSlotWithinDoctorSchedule = (slotDate, slotTime) => {
     if (!slotDateTime || Number.isNaN(slotDateTime.getTime())) return false
 
     const now = new Date()
-    const sevenDaysFromNow = new Date(now)
-    sevenDaysFromNow.setDate(now.getDate() + 7)
+    const bookingWindowEnd = new Date(now)
+    bookingWindowEnd.setDate(now.getDate() + BOOKING_WINDOW_DAYS)
 
-    if (slotDateTime <= now || slotDateTime > sevenDaysFromNow) return false
+    if (slotDateTime <= now || slotDateTime > bookingWindowEnd) return false
 
     const minutesFromMidnight = getSlotTimeValue(slotTime)
     if (!Number.isFinite(minutesFromMidnight)) return false
@@ -543,10 +554,10 @@ const isSlotAllowedForDoctor = (doctorData, slotDate, slotTime) => {
     if (!slotDateTime || Number.isNaN(slotDateTime.getTime())) return false
 
     const now = new Date()
-    const sevenDaysFromNow = new Date(now)
-    sevenDaysFromNow.setDate(now.getDate() + 7)
+    const bookingWindowEnd = new Date(now)
+    bookingWindowEnd.setDate(now.getDate() + BOOKING_WINDOW_DAYS)
 
-    if (slotDateTime <= now || slotDateTime > sevenDaysFromNow) return false
+    if (slotDateTime <= now || slotDateTime > bookingWindowEnd) return false
     if (!isDoctorWorkingDay(doctorData, slotDateTime)) return false
 
     const allowedTimes = getDoctorAllowedSlotTimes(doctorData)
@@ -726,7 +737,13 @@ const bookAppointment = async (req, res) => {
         res.json({
             success: true,
             message: urgentBooking ? 'Urgent appointment booked' : 'Appointment Booked',
-            appointment: { slotDate, slotTime, isUrgent: urgentBooking }
+            appointment: {
+                _id: createdAppointment._id,
+                appointmentCode: createdAppointment.appointmentCode,
+                slotDate,
+                slotTime,
+                isUrgent: urgentBooking
+            }
         })
 
     } catch (error) {
