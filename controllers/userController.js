@@ -277,7 +277,27 @@ const updateProfile = async (req, res) => {
             return res.json({ success: false, message: "Data Missing" })
         }
 
-        await userModel.findByIdAndUpdate(userId, { name, phone, address: JSON.parse(address), dob, gender })
+        let parsedAddress = {}
+        try {
+            parsedAddress = JSON.parse(address || '{}')
+        } catch (parseError) {
+            return res.json({ success: false, message: "Please enter a valid address" })
+        }
+
+        if (
+            !String(name).trim() ||
+            !String(phone).trim() ||
+            !String(parsedAddress.line1 || '').trim() ||
+            !String(parsedAddress.line2 || '').trim() ||
+            !String(dob).trim() ||
+            dob === 'Not Selected' ||
+            !String(gender).trim() ||
+            gender === 'Not Selected'
+        ) {
+            return res.json({ success: false, message: "Contact information and basic information are required" })
+        }
+
+        await userModel.findByIdAndUpdate(userId, { name, phone, address: parsedAddress, dob, gender })
                                                             
         if (imageFile) {
 
