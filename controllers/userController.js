@@ -59,7 +59,6 @@ const getRazorpayInstance = () => {
 
 const getAccessPassFee = () => Number(process.env.ACCESS_PASS_FEE || 99)
 const accessPassDurationDays = Number(process.env.ACCESS_PASS_DURATION_DAYS || 30)
-const generateSixDigitOtp = () => String(Math.floor(100000 + (Math.random() * 900000)))
 
 const createToken = (userId) => jwt.sign({ id: userId }, process.env.JWT_SECRET)
 
@@ -131,88 +130,6 @@ const loginUser = async (req, res) => {
         else {
             res.json({ success: false, message: "Invalid credentials" })
         }
-    } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
-    }
-}
-
-// API to send OTP for guest member login
-const sendGuestOtp = async (req, res) => {
-    try {
-        const { phone, name = "Guest Member" } = req.body
-        if (!phone) {
-            return res.json({ success: false, message: "Phone number is required" })
-        }
-
-        const phoneDigits = String(phone).replace(/\D/g, "")
-        if (phoneDigits.length < 10) {
-            return res.json({ success: false, message: "Please enter a valid phone number" })
-        }
-
-        const normalizedPhone = phoneDigits.slice(-10)
-        let user = await userModel.findOne({ phone: normalizedPhone })
-
-        if (!user) {
-            const guestEmail = `guest_${normalizedPhone}@guest.local`
-            const salt = await bcrypt.genSalt(10)
-            const password = await bcrypt.hash(`guest-${normalizedPhone}-${Date.now()}`, salt)
-            user = await userModel.create({
-                name,
-                phone: normalizedPhone,
-                email: guestEmail,
-                password,
-                isGuestMember: true,
-                patientCode: await getNextPatientCode()
-            })
-        } else {
-            user = await ensurePatientCode(user)
-        }
-
-        if (user.isBlocked) {
-            return res.json({ success: false, message: "Your account is blocked. Contact admin." })
-        }
-
-        const otp = generateSixDigitOtp()
-        const expiresAt = Date.now() + (5 * 60 * 1000)
-        await userModel.findByIdAndUpdate(user._id, { otpCode: otp, otpExpiresAt: expiresAt, isGuestMember: true })
-
-        console.log(`Guest OTP for ${normalizedPhone}: ${otp}`)
-
-        res.json({ success: true, message: "OTP sent successfully" })
-    } catch (error) {
-        console.log(error)
-        res.json({ success: false, message: error.message })
-    }
-}
-
-// API to verify OTP for guest member login
-const verifyGuestOtp = async (req, res) => {
-    try {
-        const { phone, otp } = req.body
-        if (!phone || !otp) {
-            return res.json({ success: false, message: "Phone and OTP are required" })
-        }
-
-        const normalizedPhone = String(phone).replace(/\D/g, "").slice(-10)
-        let user = await userModel.findOne({ phone: normalizedPhone })
-        if (!user) {
-            return res.json({ success: false, message: "Guest member not found" })
-        }
-        user = await ensurePatientCode(user)
-        if (user.isBlocked) {
-            return res.json({ success: false, message: "Your account is blocked. Contact admin." })
-        }
-        if (!user.otpCode || !user.otpExpiresAt || user.otpExpiresAt < Date.now()) {
-            return res.json({ success: false, message: "OTP expired. Please request a new OTP" })
-        }
-        if (String(user.otpCode) !== String(otp).trim()) {
-            return res.json({ success: false, message: "Invalid OTP" })
-        }
-
-        await userModel.findByIdAndUpdate(user._id, { otpCode: "", otpExpiresAt: 0, isGuestMember: true })
-        const token = createToken(user._id)
-        res.json({ success: true, token, message: "Guest member login successful" })
     } catch (error) {
         console.log(error)
         res.json({ success: false, message: error.message })
@@ -1273,8 +1190,6 @@ const addDoctorFeedback = async (req, res) => {
 
 export {
     loginUser,
-    sendGuestOtp,
-    verifyGuestOtp,
     registerUser,
     resetPasswordByEmail,
     getAccessPassStatus,

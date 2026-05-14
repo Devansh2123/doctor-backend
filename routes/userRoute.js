@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginUser, sendGuestOtp, verifyGuestOtp, registerUser, resetPasswordByEmail, getAccessPassStatus, createAccessPassRazorpayOrder, verifyAccessPassRazorpay, getProfile, updateProfile, bookAppointment, listAppointment, cancelAppointment, rescheduleAppointment, downloadAppointmentReport, paymentRazorpay, verifyRazorpay, paymentStripe, verifyStripe, addDoctorFeedback, getUserConsultation, sendUserConsultationMessage } from '../controllers/userController.js';
+import { loginUser, registerUser, resetPasswordByEmail, getAccessPassStatus, createAccessPassRazorpayOrder, verifyAccessPassRazorpay, getProfile, updateProfile, bookAppointment, listAppointment, cancelAppointment, rescheduleAppointment, downloadAppointmentReport, paymentRazorpay, verifyRazorpay, paymentStripe, verifyStripe, addDoctorFeedback, getUserConsultation, sendUserConsultationMessage } from '../controllers/userController.js';
 import { claimOffer, claimMembership, claimInsurance, listUserClaims } from '../controllers/offerClaimController.js';
 import upload from '../middleware/multer.js';
 import authUser from '../middleware/authUser.js';
@@ -8,8 +8,6 @@ const userRouter = express.Router();
 
 userRouter.post("/register", registerUser)
 userRouter.post("/login", loginUser)
-userRouter.post("/guest/send-otp", sendGuestOtp)
-userRouter.post("/guest/verify-otp", verifyGuestOtp)
 userRouter.post("/reset-password-email", resetPasswordByEmail)
 userRouter.get("/access-pass/status", authUser, getAccessPassStatus)
 userRouter.post("/access-pass/payment-razorpay", authUser, createAccessPassRazorpayOrder)
