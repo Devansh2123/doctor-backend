@@ -969,7 +969,7 @@ const doctorList = async (req, res) => {
     try {
 
         const doctors = (await doctorModel.find({ isApproved: { $ne: false }, isBlocked: { $ne: true } }).select(['-password', '-email']))
-            .map((doctor) => sanitizeDoctor(doctor))
+            .map((doctor) => sanitizeDoctor(doctor, { includeFeedbacks: true }))
         res.json({ success: true, doctors })
 
     } catch (error) {
@@ -1001,7 +1001,7 @@ const doctorProfile = async (req, res) => {
 
         const { docId } = req.body
         const profileRaw = await doctorModel.findById(docId).select('-password')
-        const profileData = sanitizeDoctor(profileRaw, { includeAdminFields: true, includeEmail: true })
+        const profileData = sanitizeDoctor(profileRaw, { includeAdminFields: true, includeEmail: true, includeFeedbacks: true })
 
         res.json({ success: true, profileData })
 

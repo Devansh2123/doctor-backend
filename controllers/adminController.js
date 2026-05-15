@@ -362,7 +362,7 @@ const allDoctors = async (req, res) => {
     try {
 
         const doctors = (await doctorModel.find({}).select('-password'))
-            .map((doctor) => sanitizeDoctor(doctor, { includeAdminFields: true, includeEmail: true }))
+            .map((doctor) => sanitizeDoctor(doctor, { includeAdminFields: true, includeEmail: true, includeFeedbacks: true }))
         res.json({ success: true, doctors })
 
     } catch (error) {

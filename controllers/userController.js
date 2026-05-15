@@ -1144,9 +1144,9 @@ const addDoctorFeedback = async (req, res) => {
             return res.json({ success: false, message: 'Rating must be between 1 and 5' })
         }
 
-        const hasAppointment = await appointmentModel.findOne({ userId, docId, cancelled: false })
-        if (!hasAppointment) {
-            return res.json({ success: false, message: 'Book this doctor before giving feedback' })
+        const completedAppointment = await appointmentModel.findOne({ userId, docId, cancelled: false, isCompleted: true })
+        if (!completedAppointment) {
+            return res.json({ success: false, message: 'Complete an appointment with this doctor before giving feedback' })
         }
 
         const [doctorData, userData] = await Promise.all([
