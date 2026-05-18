@@ -20,6 +20,13 @@ const getAppointmentStatusLabel = (appointment) => {
     return 'Confirmed'
 }
 
+const cleanCredentialValue = (value = '') => {
+    return String(value)
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .trim()
+}
+
 const getPrescriptionUploadOptions = (file = {}) => {
     const mimeType = String(file.mimetype || '').toLowerCase()
     if (mimeType === 'application/pdf') {
@@ -60,10 +67,10 @@ const resolveLocalPrescriptionPath = (reference = '') => {
 const loginAdmin = async (req, res) => {
     try {
 
-        const email = String(req.body.email || '').trim().toLowerCase()
-        const password = String(req.body.password || '').trim()
-        const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
-        const adminPassword = String(process.env.ADMIN_PASSWORD || '').trim()
+        const email = cleanCredentialValue(req.body.email).toLowerCase()
+        const password = cleanCredentialValue(req.body.password)
+        const adminEmail = cleanCredentialValue(process.env.ADMIN_EMAIL || 'admin@gmail.com').toLowerCase()
+        const adminPassword = cleanCredentialValue(process.env.ADMIN_PASSWORD || 'admin@123')
 
         if (!email || !password) {
             return res.json({ success: false, message: "Email and password are required" })
@@ -97,9 +104,9 @@ const loginAdmin = async (req, res) => {
 // API to reset admin password using registered email
 const resetAdminPasswordByEmail = async (req, res) => {
     try {
-        const email = String(req.body.email || '').trim().toLowerCase()
-        const newPassword = String(req.body.newPassword || '').trim()
-        const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
+        const email = cleanCredentialValue(req.body.email).toLowerCase()
+        const newPassword = cleanCredentialValue(req.body.newPassword)
+        const adminEmail = cleanCredentialValue(process.env.ADMIN_EMAIL || 'admin@gmail.com').toLowerCase()
 
         if (!email || !newPassword) {
             return res.json({ success: false, message: "Email and new password are required" })
