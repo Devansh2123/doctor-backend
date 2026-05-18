@@ -27,6 +27,11 @@ const cleanCredentialValue = (value = '') => {
         .trim()
 }
 
+const isCloudinaryConfigError = (error) => {
+    const message = String(error?.message || '').toLowerCase()
+    return message.includes('api_key') || message.includes('cloud_name') || message.includes('api_secret')
+}
+
 const getPrescriptionUploadOptions = (file = {}) => {
     const mimeType = String(file.mimetype || '').toLowerCase()
     if (mimeType === 'application/pdf') {
@@ -332,6 +337,10 @@ const addDoctor = async (req, res) => {
         const salt = await bcrypt.genSalt(10); // the more no. round the more time it will take
         const hashedPassword = await bcrypt.hash(password, salt)
 
+        if (!imageFile?.path) {
+            return res.json({ success: false, message: "Doctor image is required" })
+        }
+
         // upload image to cloudinary
         const imageUpload = await cloudinary.uploader.upload(imageFile.path, { resource_type: "image" })
         const imageUrl = imageUpload.secure_url
@@ -367,6 +376,12 @@ const addDoctor = async (req, res) => {
 
     } catch (error) {
         console.log(error)
+        if (isCloudinaryConfigError(error)) {
+            return res.json({
+                success: false,
+                message: "Cloudinary is not configured. Add CLOUDINARY_NAME, CLOUDINARY_API_KEY and CLOUDINARY_SECRET_KEY in the backend environment."
+            })
+        }
         res.json({ success: false, message: error.message })
     }
 }
