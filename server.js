@@ -47,11 +47,24 @@ const corsOrigins = corsOriginsRaw
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const isAllowedVercelPreviewOrigin = (origin) => {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    return (
+      protocol === "https:" &&
+      hostname.endsWith("-devansh2123s-projects.vercel.app")
+    );
+  } catch {
+    return false;
+  }
+};
+
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // allow Postman / mobile
     if (corsOrigins.length === 0) return callback(null, true);
     if (corsOrigins.includes(origin)) return callback(null, true);
+    if (isAllowedVercelPreviewOrigin(origin)) return callback(null, true);
     return callback(new Error("CORS: Origin not allowed"));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

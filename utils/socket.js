@@ -9,6 +9,15 @@ const getAllowedOrigins = () => {
     return list
 }
 
+const isAllowedVercelPreviewOrigin = (origin) => {
+    try {
+        const { hostname, protocol } = new URL(origin)
+        return protocol === "https:" && hostname.endsWith("-devansh2123s-projects.vercel.app")
+    } catch {
+        return false
+    }
+}
+
 let io;
 
 const initSocket = (httpServer) => {
@@ -17,7 +26,15 @@ const initSocket = (httpServer) => {
 
     io = new Server(httpServer, {
         cors: {
-            origin: allowAll ? true : allowedOrigins,
+            origin: allowAll
+                ? true
+                : (origin, callback) => {
+                    if (!origin) return callback(null, true)
+                    if (allowedOrigins.includes(origin) || isAllowedVercelPreviewOrigin(origin)) {
+                        return callback(null, true)
+                    }
+                    return callback(new Error("CORS: Origin not allowed"))
+                },
             methods: ["GET", "POST"],
             credentials: true
         }
