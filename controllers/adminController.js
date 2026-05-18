@@ -60,20 +60,25 @@ const resolveLocalPrescriptionPath = (reference = '') => {
 const loginAdmin = async (req, res) => {
     try {
 
-        const { email, password } = req.body
+        const email = String(req.body.email || '').trim().toLowerCase()
+        const password = String(req.body.password || '').trim()
+        const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
+        const adminPassword = String(process.env.ADMIN_PASSWORD || '').trim()
 
         if (!email || !password) {
             return res.json({ success: false, message: "Email and password are required" })
         }
 
-        if (email !== process.env.ADMIN_EMAIL) {
+        if (email !== adminEmail) {
             return res.json({ success: false, message: "Invalid credentials" })
         }
 
         const savedCredential = await adminCredentialModel.findOne({ email })
-        const passwordMatches = savedCredential
+        const savedPasswordMatches = savedCredential
             ? await bcrypt.compare(password, savedCredential.password)
-            : password === process.env.ADMIN_PASSWORD
+            : false
+        const envPasswordMatches = password === adminPassword
+        const passwordMatches = savedPasswordMatches || envPasswordMatches
 
         if (passwordMatches) {
             const token = jwt.sign({ role: "admin", email }, process.env.JWT_SECRET)
@@ -92,7 +97,9 @@ const loginAdmin = async (req, res) => {
 // API to reset admin password using registered email
 const resetAdminPasswordByEmail = async (req, res) => {
     try {
-        const { email, newPassword } = req.body
+        const email = String(req.body.email || '').trim().toLowerCase()
+        const newPassword = String(req.body.newPassword || '').trim()
+        const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
 
         if (!email || !newPassword) {
             return res.json({ success: false, message: "Email and new password are required" })
@@ -102,7 +109,7 @@ const resetAdminPasswordByEmail = async (req, res) => {
             return res.json({ success: false, message: "Please enter a valid email" })
         }
 
-        if (email !== process.env.ADMIN_EMAIL) {
+        if (email !== adminEmail) {
             return res.json({ success: false, message: "No admin found with this email" })
         }
 
