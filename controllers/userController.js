@@ -59,6 +59,7 @@ const getRazorpayInstance = () => {
 
 const getAccessPassFee = () => Number(process.env.ACCESS_PASS_FEE || 99)
 const accessPassDurationDays = Number(process.env.ACCESS_PASS_DURATION_DAYS || 30)
+const phonePattern = /^\d{10}$/
 
 const createToken = (userId) => jwt.sign({ id: userId }, process.env.JWT_SECRET)
 
@@ -277,6 +278,11 @@ const updateProfile = async (req, res) => {
             return res.json({ success: false, message: "Data Missing" })
         }
 
+        const normalizedPhone = String(phone).trim()
+        if (!phonePattern.test(normalizedPhone)) {
+            return res.json({ success: false, message: "Phone number must be exactly 10 digits" })
+        }
+
         let parsedAddress = {}
         try {
             parsedAddress = JSON.parse(address || '{}')
@@ -286,7 +292,7 @@ const updateProfile = async (req, res) => {
 
         if (
             !String(name).trim() ||
-            !String(phone).trim() ||
+            !normalizedPhone ||
             !String(parsedAddress.line1 || '').trim() ||
             !String(parsedAddress.line2 || '').trim() ||
             !String(dob).trim() ||
@@ -297,7 +303,7 @@ const updateProfile = async (req, res) => {
             return res.json({ success: false, message: "Contact information and basic information are required" })
         }
 
-        await userModel.findByIdAndUpdate(userId, { name, phone, address: parsedAddress, dob, gender })
+        await userModel.findByIdAndUpdate(userId, { name, phone: normalizedPhone, address: parsedAddress, dob, gender })
                                                             
         if (imageFile) {
 
